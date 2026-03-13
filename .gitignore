@@ -1,0 +1,15 @@
+# Backup output (date-based folders under backups/)
+backups/**
+!backups/.gitkeep
+
+# Cursor archives (if ever generated)
+*.tar
+*.7z
+
+# Common IDE / OS noise
+node_modules/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
