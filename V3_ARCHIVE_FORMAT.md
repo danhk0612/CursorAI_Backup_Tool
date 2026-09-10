@@ -86,12 +86,21 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 
 이 결과로 v3 백업 데이터가 Cursor 설치 위치 자체에 종속되지 않고 User Setup → System Setup 환경 간에도 복원 가능한 것을 1차 확인했다.
 
+Normal 복원 보존 정책도 실제 VM에서 다음과 같이 확인했다.
+
+- VM의 `%APPDATA%\Cursor\User\workspaceStorage`에 테스트 파일을 만든 뒤 Normal 복원 수행
+- 복원 후 테스트 파일이 그대로 남아 있어, Normal 백업에서 제외된 기존 User workspaceStorage가 보존됨을 확인
+- VM의 `.cursor\extensions`에만 있던 테스트 파일은 복원 후 사라짐을 확인
+- 이는 extensions가 보존 대상이 아니라 백업본의 실제 확장 파일로 교체되는 현재 정책과 일치함
+
+현재 VM에는 `%APPDATA%\Cursor\WorkspaceStorage`와 `.cursor\user-data`가 존재하지 않아 해당 두 위치의 보존은 아직 실제 검증하지 못했다.
+
 아직 별도 확인이 필요한 항목:
 
-- Normal 복원 시 기존 `%APPDATA%\Cursor\WorkspaceStorage` 보존
-- Normal 복원 시 기존 `%APPDATA%\Cursor\User\workspaceStorage` 보존
-- Normal 복원 시 기존 `.cursor\user-data` 보존
+- Normal 복원 시 기존 `%APPDATA%\Cursor\WorkspaceStorage` 보존 (대상 VM에 실제 폴더가 있을 때)
+- Normal 복원 시 기존 `.cursor\user-data` 보존 (대상 VM에 실제 폴더가 있을 때)
 - Full AI 백업/복원 시 두 WorkspaceStorage 교체 확인
 - 기존 v2/Legacy 폴더 백업 복원 호환성
 - 오프라인/VSIX 설치 확장의 실제 복구 확인
 - `NoCompression` 적용 후 백업 시간 재측정
+- 복원 전 pre-restore 안전 백업의 긴 수행 시간 및 진행 가시성 개선
