@@ -74,3 +74,23 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - 수많은 작은 파일을 백업 대상 폴더에 개별 생성하는 비용 감소
 
 복원 시에는 실제 Cursor 데이터 파일을 다시 생성해야 하므로 파일 수에 따른 복원 시간 자체를 완전히 제거할 수는 없다.
+
+## Windows validation record
+
+2026-09-10 실제 Windows 환경에서 다음 교차 설치 복원을 확인했다.
+
+- 원본 PC: Cursor **User Setup**
+- 대상 VM: Cursor **System Setup**
+- 원본 PC에서 백업 생성 후 VM에서 복원 완료
+- 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
+
+이 결과로 v3 백업 데이터가 Cursor 설치 위치 자체에 종속되지 않고 User Setup → System Setup 환경 간에도 복원 가능한 것을 1차 확인했다.
+
+아직 별도 확인이 필요한 항목:
+
+- Normal 복원 시 기존 `%APPDATA%\Cursor\WorkspaceStorage` 보존
+- Normal 복원 시 기존 `%APPDATA%\Cursor\User\workspaceStorage` 보존
+- Normal 복원 시 기존 `.cursor\user-data` 보존
+- Full AI 백업/복원 시 두 WorkspaceStorage 교체 확인
+- 기존 v2/Legacy 폴더 백업 복원 호환성
+- 오프라인/VSIX 설치 확장의 실제 복구 확인
