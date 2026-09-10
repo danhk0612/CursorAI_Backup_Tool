@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish win-x64 single-file
+        shell: pwsh
+        run: |
+          dotnet publish .\src\CursorAI.BackupTool\CursorAI.BackupTool.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false
+
+      - name: Prepare release package
+        shell: pwsh
+        run: |
+          $publish = '.\src\CursorAI.BackupTool\bin\Release\net8.0-windows\win-x64\publish'
+          $stage = '.\release-package'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$publish\CursorAI.BackupTool.exe" "$stage\CursorAI.BackupTool.exe"
+          Copy-Item '.\README.md' "$stage\README.md"
+          if (Test-Path '.\LICENSE') { Copy-Item '.\LICENSE' "$stage\LICENSE" }
+          Compress-Archive -Path "$stage\*" -DestinationPath '.\CursorAI.BackupTool-win-x64.zip' -Force
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          gh release create $tag `
+            '.\CursorAI.BackupTool-win-x64.zip' `
+            '.\src\CursorAI.BackupTool\bin\Release\net8.0-windows\win-x64\publish\CursorAI.BackupTool.exe' `
+            --title $tag `
+            --generate-notes `
+            --verify-tag
