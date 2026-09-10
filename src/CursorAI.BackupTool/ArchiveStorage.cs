@@ -2,29 +2,48 @@ using System.IO.Compression;
 
 namespace CursorAI.BackupTool;
 
+internal sealed record ArchiveWriteProgress(long FilesProcessed, long BytesProcessed);
+
 internal static class ArchiveStorage
 {
-    public static Task CreateAsync(string sourceRoot, string archivePath, IEnumerable<string> excludedDirectories)
-        => Task.Run(() => Create(sourceRoot, archivePath, excludedDirectories));
+    public static Task CreateAsync(
+        string sourceRoot,
+        string archivePath,
+        IEnumerable<string> excludedDirectories,
+        IProgress<ArchiveWriteProgress>? progress = null)
+        => Task.Run(() => Create(sourceRoot, archivePath, excludedDirectories, progress));
 
     public static Task ExtractAsync(string archivePath, string destinationRoot)
         => Task.Run(() => Extract(archivePath, destinationRoot));
 
-    private static void Create(string sourceRoot, string archivePath, IEnumerable<string> excludedDirectories)
+    private static void Create(
+        string sourceRoot,
+        string archivePath,
+        IEnumerable<string> excludedDirectories,
+        IProgress<ArchiveWriteProgress>? progress)
     {
-        var sourceFull = NormalizeDirectory(sourceRoot);
         var excludes = excludedDirectories.Select(NormalizeDirectory).ToArray();
         Directory.CreateDirectory(Path.GetDirectoryName(archivePath)!);
 
-        using var output = new FileStream(archivePath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 1024 * 1024, FileOptions.SequentialScan);
-        using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: false);
+        using var output = new FileStream(
+            archivePath,
+            FileMode.CreateNew,
+            FileAccess.ReadWrite,
+            FileShare.Read,
+            1024 * 1024,
+            FileOptions.SequentialScan);
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
 
         var pending = new Stack<string>();
         pending.Push(sourceRoot);
+        long filesProcessed = 0;
+        long bytesProcessed = 0;
+        long bytesSinceFlush = 0;
 
         while (pending.Count > 0)
         {
             var current = pending.Pop();
+
             foreach (var directory in Directory.EnumerateDirectories(current))
             {
                 if (IsExcluded(directory, excludes)) continue;
@@ -36,9 +55,14 @@ internal static class ArchiveStorage
             foreach (var file in Directory.EnumerateFiles(current))
             {
                 if (IsExcluded(file, excludes)) continue;
+
+                var info = new FileInfo(file);
                 var relative = Path.GetRelativePath(sourceRoot, file).Replace('\\', '/');
-                var entry = archive.CreateEntry(relative, CompressionLevel.Fastest);
-                entry.LastWriteTime = File.GetLastWriteTime(file);
+
+                // The archive is primarily a file-count container, not a compression feature.
+                // NoCompression avoids spending minutes deflating extension trees made of many small files.
+                var entry = archive.CreateEntry(relative, CompressionLevel.NoCompression);
+                entry.LastWriteTime = info.LastWriteTime;
 
                 using var source = new FileStream(
                     file,
@@ -49,8 +73,26 @@ internal static class ArchiveStorage
                     FileOptions.SequentialScan);
                 using var target = entry.Open();
                 source.CopyTo(target, 1024 * 1024);
+
+                filesProcessed++;
+                bytesProcessed += info.Length;
+                bytesSinceFlush += info.Length;
+
+                if (bytesSinceFlush >= 64L * 1024 * 1024)
+                {
+                    target.Flush();
+                    output.Flush();
+                    bytesSinceFlush = 0;
+                }
+
+                if (filesProcessed % 100 == 0 || bytesSinceFlush == 0)
+                    progress?.Report(new ArchiveWriteProgress(filesProcessed, bytesProcessed));
             }
         }
+
+        progress?.Report(new ArchiveWriteProgress(filesProcessed, bytesProcessed));
+        archive.Dispose();
+        output.Flush();
     }
 
     private static void Extract(string archivePath, string destinationRoot)
