@@ -104,15 +104,15 @@ if exist "%USERPROFILE%\.cursor" (
     )
 )
 
-:: Use call when invoking cursor so this script does not exit
+:: Use call when invoking Cursor so PATH-resolved batch launchers return to this script.
 echo.
 echo "[3/5] Creating information files..."
-call cursor --version > "%DEST%\cursor_version.txt" 2>nul
+call "%CURSOR_CMD%" --version > "%DEST%\cursor_version.txt" 2>nul
 if errorlevel 1 (
     set "BACKUP_WARNING=1"
     echo "Warning: Could not create cursor_version.txt."
 )
-call cursor --list-extensions > "%DEST%\extensions.txt" 2>nul
+call "%CURSOR_CMD%" --list-extensions > "%DEST%\extensions.txt" 2>nul
 if errorlevel 1 (
     set "BACKUP_WARNING=1"
     echo "Warning: Could not create extensions.txt."
