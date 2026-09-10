@@ -15,7 +15,8 @@ v2/v3 개선 방향과 작업 순서는 `V2_PLAN.md`, 아카이브 포맷은 `V3
 - 백업 / 복원 / 삭제 / 새로 고침
 - 백업·복원 중 현재 단계와 경과 시간 표시
 - Cursor가 실행 중인 상태에서 백업/복원 시작 시 알림 후 자동 종료 선택
-- 복원 전 `pre-restore_...` 안전 백업 생성
+- 기본 복원은 현재 Cursor 데이터를 같은 드라이브의 임시 위치로 이동해 롤백용으로 보존
+- 필요할 때만 `복원 전 영구 안전 백업 생성 (느림)` 옵션으로 `pre-restore_...` 아카이브 생성
 - 실패 시 기존 데이터 롤백 시도
 - 동시에 두 개의 GUI가 실행되지 않도록 단일 실행 제한
 - 백업/복원 중 창 닫기 차단
@@ -130,15 +131,19 @@ backups\yyyy-MM-dd_HHmmss\
 
 ## 복원 처리
 
+기본 복원은 별도 영구 안전 백업 아카이브를 만들지 않습니다. 대신 현재 Cursor 데이터 폴더를 같은 드라이브의 `*.cursor-backup-old-<timestamp>` 임시 위치로 이동한 뒤 복원을 진행합니다. 복원 중 오류가 발생하면 이 임시 폴더를 원위치로 되돌리는 롤백을 시도합니다.
+
 1. Cursor 종료 확인
-2. 현재 상태를 `pre-restore_yyyy-MM-dd_HHmmss`로 안전 백업
-3. 현재 Cursor 데이터를 임시 위치로 이동
-4. 선택한 백업을 새로 복원
-5. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\WorkspaceStorage` 보존
-6. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\User\workspaceStorage` 보존
-7. 백업 제외 대상인 `.cursor\user-data` 보존
-8. 위 제외 데이터는 같은 볼륨에서 대용량 재복사하지 않고 디렉터리 이동으로 제자리 복원
-9. 어느 단계든 실패하면 이동된 제외 데이터를 원래 임시 폴더로 되돌린 뒤 기존 Cursor 데이터 전체 롤백 시도
+2. 현재 Cursor 데이터를 같은 드라이브의 임시 위치로 이동하여 롤백용으로 보존
+3. 선택한 백업을 새로 복원
+4. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\WorkspaceStorage` 보존
+5. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\User\workspaceStorage` 보존
+6. 백업 제외 대상인 `.cursor\user-data` 보존
+7. 위 제외 데이터는 같은 볼륨에서 대용량 재복사하지 않고 디렉터리 이동으로 제자리 복원
+8. 어느 단계든 실패하면 이동된 제외 데이터를 원래 임시 폴더로 되돌린 뒤 기존 Cursor 데이터 전체 롤백 시도
+9. 복원 성공 후 롤백용 임시 폴더 정리
+
+`복원 전 영구 안전 백업 생성 (느림)`을 선택하면 기존 방식대로 복원 시작 전에 현재 상태를 `pre-restore_yyyy-MM-dd_HHmmss` v3 아카이브로 별도 보관합니다. 장기 보관용 복구 지점이 필요한 경우에만 사용합니다.
 
 `.incomplete` 백업은 복원할 수 없습니다.
 
@@ -152,8 +157,10 @@ backups\yyyy-MM-dd_HHmmss\
 - Normal 백업에서 두 WorkspaceStorage 제외 후 용량 감소
 - **User Setup 원본 PC → System Setup VM** 교차 설치 유형으로 백업/복원 완료
 - 교차 설치 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
+- Normal 복원에서 기존 `%APPDATA%\Cursor\User\workspaceStorage`가 보존되는 것 확인
+- Normal 복원에서 `.cursor\extensions`가 VM의 기존 임의 파일을 보존하지 않고 백업본으로 교체되는 것 확인
 
-아직 별도 확인할 항목은 Normal 복원 시 두 WorkspaceStorage와 `.cursor\user-data` 보존, Full AI 복원, 기존 v2/Legacy 백업 복원, 오프라인/VSIX 확장 복구, `NoCompression` 아카이브 성능 재측정입니다.
+기본 복원의 영구 `pre-restore` 생성을 선택 옵션으로 바꾸는 최적화는 코드/문서에 반영했으며 별도 수동 검증 단계는 생략합니다.
 
 ## Legacy 배치 도구
 
