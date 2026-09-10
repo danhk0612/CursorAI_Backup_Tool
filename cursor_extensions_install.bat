@@ -22,9 +22,7 @@ if "%menu%"=="1" goto install
 if "%menu%"=="2" exit
 goto menu
 
-
 :install
-
 cd /d "%ROOT%"
 
 echo.
@@ -41,16 +39,19 @@ if not exist "%BACKUP_ROOT%" (
 
 pushd "%BACKUP_ROOT%"
 for /f "delims=" %%f in ('dir /b /ad /o-d 2^>nul') do (
- if exist "%%f\Roaming\Cursor" (
-  set /a i+=1
-  echo "!i!. %%f"
-  set folder!i!=%%f
+ echo %%f | findstr /I /E /C:".incomplete" >nul
+ if errorlevel 1 (
+  if exist "%%f\Roaming\Cursor" (
+   set /a i+=1
+   echo "!i!. %%f"
+   set folder!i!=%%f
+  )
  )
 )
 popd
 
 if !i! equ 0 (
- echo "No backup folder found."
+ echo "No completed backup folder found."
  pause
  goto menu
 )
@@ -66,10 +67,15 @@ if "!SEL!"=="" (
  goto menu
 )
 
-set "EXTFILE=%BACKUP_ROOT%\!SEL!\extensions.txt"
+set "EXTFILE=%BACKUP_ROOT%\!SEL!\extensions_with_versions.txt"
+set "EXTMODE=versioned"
+if not exist "!EXTFILE!" (
+ set "EXTFILE=%BACKUP_ROOT%\!SEL!\extensions.txt"
+ set "EXTMODE=id-only"
+)
 
 if not exist "!EXTFILE!" (
- echo "extensions.txt not found."
+ echo "No extension list found in the selected backup."
  pause
  goto menu
 )
@@ -77,17 +83,33 @@ if not exist "!EXTFILE!" (
 echo.
 echo "===== Extension Install ====="
 echo "Backup: !SEL!"
+echo "List mode: !EXTMODE!"
 echo.
+
+set "EXT_TOTAL=0"
+set "EXT_SUCCESS=0"
+set "EXT_FAILED=0"
 
 for /f "usebackq delims=" %%i in ("!EXTFILE!") do (
  if not "%%i"=="" (
+  set /a EXT_TOTAL+=1
   echo "Installing %%i"
-  "%CURSOR_CMD%" --install-extension %%i
+  call "%CURSOR_CMD%" --install-extension "%%i"
+  if errorlevel 1 (
+   set /a EXT_FAILED+=1
+   echo "[FAIL] %%i"
+  ) else (
+   set /a EXT_SUCCESS+=1
+   echo "[OK] %%i"
+  )
  )
 )
 
 echo.
-echo "===== Install Complete ====="
+echo "===== Install Result ====="
+echo "Total   : !EXT_TOTAL!"
+echo "Success : !EXT_SUCCESS!"
+echo "Failed  : !EXT_FAILED!"
 echo.
 
 pause
