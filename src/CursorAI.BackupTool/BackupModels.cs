@@ -36,4 +36,5 @@ internal sealed class BackupRecord
     public string CreatedText => CreatedAt == DateTime.MinValue ? "-" : CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
 }
 
+internal sealed record OperationProgress(int Percent, string Message);
 internal sealed record OperationResult(bool Success, string Message);
