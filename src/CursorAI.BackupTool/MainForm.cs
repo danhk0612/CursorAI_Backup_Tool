@@ -5,9 +5,16 @@ namespace CursorAI.BackupTool;
 internal sealed class MainForm : Form
 {
     private readonly BackupService _service = new();
+    private readonly OptimizedRestoreService _restoreService;
     private readonly DataGridView _grid = new();
     private readonly RadioButton _normalRadio = new() { Text = "일반 백업", Checked = true, AutoSize = true };
     private readonly RadioButton _fullRadio = new() { Text = "전체 AI 백업 (workspaceStorage 포함)", AutoSize = true };
+    private readonly CheckBox _persistentSafetyBackupCheck = new()
+    {
+        Text = "복원 전 영구 안전 백업 생성 (느림)",
+        AutoSize = true,
+        Checked = false
+    };
     private readonly Button _backupButton = new() { Text = "백업", Width = 100 };
     private readonly Button _restoreButton = new() { Text = "복원", Width = 100 };
     private readonly Button _deleteButton = new() { Text = "삭제", Width = 100 };
@@ -22,10 +29,12 @@ internal sealed class MainForm : Form
 
     public MainForm()
     {
+        _restoreService = new OptimizedRestoreService(_service);
+
         Text = "CursorAI Backup Tool";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(860, 560);
-        Size = new Size(1000, 660);
+        MinimumSize = new Size(860, 580);
+        Size = new Size(1000, 680);
 
         BuildLayout();
         ConfigureGrid();
@@ -45,9 +54,10 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 6,
+            RowCount = 7,
             Padding = new Padding(12)
         };
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -69,7 +79,7 @@ internal sealed class MainForm : Form
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            Margin = new Padding(0, 0, 0, 10)
+            Margin = new Padding(0, 0, 0, 6)
         };
         controls.Controls.Add(_normalRadio);
         controls.Controls.Add(_fullRadio);
@@ -79,12 +89,29 @@ internal sealed class MainForm : Form
         controls.Controls.Add(_deleteButton);
         controls.Controls.Add(_refreshButton);
 
+        var restoreOptions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0, 0, 0, 10)
+        };
+        restoreOptions.Controls.Add(_persistentSafetyBackupCheck);
+        restoreOptions.Controls.Add(new Label
+        {
+            Text = "기본 복원은 현재 데이터를 같은 드라이브에 임시 이동해 롤백용으로 보존합니다.",
+            AutoSize = true,
+            Margin = new Padding(12, 3, 0, 0)
+        });
+
         root.Controls.Add(title, 0, 0);
         root.Controls.Add(controls, 0, 1);
-        root.Controls.Add(_grid, 0, 2);
-        root.Controls.Add(_progressLabel, 0, 3);
-        root.Controls.Add(_progressBar, 0, 4);
-        root.Controls.Add(_statusLabel, 0, 5);
+        root.Controls.Add(restoreOptions, 0, 2);
+        root.Controls.Add(_grid, 0, 3);
+        root.Controls.Add(_progressLabel, 0, 4);
+        root.Controls.Add(_progressBar, 0, 5);
+        root.Controls.Add(_statusLabel, 0, 6);
         Controls.Add(root);
     }
 
@@ -144,16 +171,21 @@ internal sealed class MainForm : Form
         }
         if (!EnsureCursorStoppedForOperation("복원")) return;
 
+        var safetyText = _persistentSafetyBackupCheck.Checked
+            ? "복원 전에 현재 상태의 영구 안전 백업 아카이브를 생성합니다. 이 단계는 오래 걸릴 수 있습니다."
+            : "현재 상태는 같은 드라이브에 임시 이동하여 복원 실패 시 롤백용으로 보존합니다. 영구 안전 백업 아카이브는 생성하지 않습니다.";
+
         var answer = MessageBox.Show(
-            $"'{record.Name}' 백업으로 복원합니다.\r\n복원 전에 현재 상태의 안전 백업을 자동 생성합니다.\r\n계속하시겠습니까?",
+            $"'{record.Name}' 백업으로 복원합니다.\r\n{safetyText}\r\n계속하시겠습니까?",
             "복원 확인",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return;
 
+        var createPersistentSafetyBackup = _persistentSafetyBackupCheck.Checked;
         var result = await RunOperationAsync(
             "복원 준비 중...",
-            progress => _service.RestoreAsync(record, progress));
+            progress => _restoreService.RestoreAsync(record, createPersistentSafetyBackup, progress));
 
         ShowResult(result);
         await RefreshBackupsAsync();
@@ -305,6 +337,7 @@ internal sealed class MainForm : Form
         _refreshButton.Enabled = !busy;
         _normalRadio.Enabled = !busy;
         _fullRadio.Enabled = !busy;
+        _persistentSafetyBackupCheck.Enabled = !busy;
         _grid.Enabled = !busy;
         ControlBox = !busy;
     }
