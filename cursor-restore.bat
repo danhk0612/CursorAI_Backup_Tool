@@ -37,16 +37,19 @@ if not exist "%BACKUP_ROOT%" (
 
 pushd "%BACKUP_ROOT%"
 for /f "delims=" %%d in ('dir /b /ad /o-d 2^>nul') do (
- if exist "%%d\Roaming\Cursor" (
-  set /a i+=1
-  echo "!i!. %%d"
-  set file!i!=%%d
+ echo %%d | findstr /I /E /C:".incomplete" >nul
+ if errorlevel 1 (
+  if exist "%%d\Roaming\Cursor" (
+   set /a i+=1
+   echo "!i!. %%d"
+   set file!i!=%%d
+  )
  )
 )
 popd
 
 if !i! equ 0 (
-    echo "No backup folder found."
+    echo "No completed backup folder found."
     pause
     goto menu
 )
