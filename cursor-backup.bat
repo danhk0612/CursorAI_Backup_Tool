@@ -172,6 +172,20 @@ if exist "%DBPATH%\state.vscdb.backup" (
     )
 )
 
+set "BACKUP_STATUS=SUCCESS"
+if "!BACKUP_WARNING!"=="1" set "BACKUP_STATUS=WARNING"
+if "!BACKUP_FAILED!"=="1" set "BACKUP_STATUS=FAILED"
+
+:: Write a machine-readable manifest for completed-backup validation and future GUI use.
+powershell -NoProfile -Command "$versionFile = Join-Path $env:DEST 'cursor_version.txt'; $version = $null; if (Test-Path -LiteralPath $versionFile) { $version = Get-Content -LiteralPath $versionFile -ErrorAction SilentlyContinue | Select-Object -First 1 }; $obj = [ordered]@{ backupVersion = 2; createdAt = (Get-Date).ToString('o'); cursorVersion = $version; type = $env:BACKUP_TYPE; workspaceStorageIncluded = ($env:WORKSPACE_INCLUDED -eq '1'); status = $env:BACKUP_STATUS }; $obj | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:DEST 'backup-info.json') -Encoding UTF8" >nul 2>&1
+if errorlevel 1 (
+    if "!BACKUP_FAILED!"=="0" (
+        set "BACKUP_WARNING=1"
+        set "BACKUP_STATUS=WARNING"
+    )
+    echo "Warning: Could not create backup-info.json."
+)
+
 echo.
 echo "===== Backup Result ====="
 echo "Backup type  : !BACKUP_TYPE!"
