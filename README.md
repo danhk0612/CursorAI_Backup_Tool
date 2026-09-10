@@ -1,180 +1,138 @@
-# Cursor Backup Scripts
+# CursorAI Backup Tool
 
-Windows 환경에서 Cursor 에디터의 사용자 데이터를 백업·복원하는 도구입니다.
+Windows에서 Cursor 에디터의 설정, 확장 프로그램, 프로젝트 관련 사용자 데이터를 간편하게 백업하고 복원하는 도구입니다.
 
-v2/v3 개선 방향과 작업 순서는 `V2_PLAN.md`, 아카이브 포맷은 `V3_ARCHIVE_FORMAT.md`를 참고하세요.
+## 주요 기능
 
-## GUI
+- GUI에서 클릭으로 백업 / 복원 / 삭제
+- 일반 백업과 전체 AI 백업 지원
+- Cursor 사용자 설치 / 시스템 설치 자동 대응
+- 백업 전에 Cursor가 실행 중이면 자동 종료 여부 확인
+- `.cursor\extensions` 실제 확장 파일까지 백업
+- 기존 백업 목록에서 생성 시각, 종류, 상태, 크기 확인
+- 복원 실패 시 기존 데이터 롤백 시도
+- 기존 v2/Legacy 폴더형 백업도 복원 가능
 
-`src/CursorAI.BackupTool`에 .NET 8 WinForms GUI가 있습니다.
+## 다운로드
 
-주요 기능:
+최신 버전은 GitHub의 **Releases** 페이지에서 받을 수 있습니다.
 
-- Normal backup / Full AI backup 선택
-- 백업 목록과 종류·상태·크기·생성 시각 표시
-- 백업 / 복원 / 삭제 / 새로 고침
-- 백업·복원 중 현재 단계와 경과 시간 표시
-- Cursor가 실행 중인 상태에서 백업/복원 시작 시 알림 후 자동 종료 선택
-- 기본 복원은 현재 Cursor 데이터를 같은 드라이브의 임시 위치로 이동해 롤백용으로 보존
-- 필요할 때만 `복원 전 영구 안전 백업 생성 (느림)` 옵션으로 `pre-restore_...` 아카이브 생성
-- 실패 시 기존 데이터 롤백 시도
-- 동시에 두 개의 GUI가 실행되지 않도록 단일 실행 제한
-- 백업/복원 중 창 닫기 차단
+Windows 64비트용 배포 파일:
 
-### Cursor 설치 유형 대응
+- `CursorAI.BackupTool.exe` — 단일 실행 파일
+- `CursorAI.BackupTool-win-x64.zip` — 압축 패키지
 
-GUI는 기존 배치 도구와 동일하게 사용자 설치와 시스템 설치를 모두 탐색합니다.
+별도의 .NET 설치는 필요하지 않습니다.
 
-- 사용자 설치: `%LOCALAPPDATA%\Programs\Cursor`
-- 시스템 설치: `%ProgramFiles%\Cursor`
-- 32비트 Program Files: `%ProgramFiles(x86)%\Cursor`
+## 사용 방법
 
-Cursor 버전은 발견한 `Cursor.exe`의 파일 버전 정보에서 읽습니다. 버전 확인을 위해 Cursor 본체를 실행하지 않습니다.
+1. `CursorAI.BackupTool.exe`를 실행합니다.
+2. 백업할 경우 `일반 백업` 또는 `전체 AI 백업`을 선택합니다.
+3. `백업` 버튼을 누릅니다.
+4. 복원할 경우 목록에서 원하는 백업을 선택한 뒤 `복원` 버튼을 누릅니다.
+5. 필요 없는 백업은 선택 후 `삭제`할 수 있습니다.
 
-확장 목록을 만들 때는 각 설치 폴더의 `resources\app\bin\cursor.cmd`를 사용하고, 찾지 못하면 PATH의 `cursor.cmd`를 확인합니다. CLI를 찾지 못해도 확장 실파일 백업은 그대로 유지됩니다.
-
-### Cursor 실행 중 처리
-
-백업 또는 복원 버튼을 눌렀을 때 Cursor가 실행 중이면 확인창을 표시합니다.
-
-`예`를 선택하면 GUI가 Cursor 프로세스를 종료하고, 완전히 종료된 것을 확인한 뒤 작업을 시작합니다. 종료하지 못하면 백업/복원은 시작하지 않습니다.
-
-백업 과정에서는 `Cursor.exe`를 CLI 용도로 실행하지 않으므로 백업 도중 Cursor가 다시 실행되지 않도록 했습니다.
-
-### 진행 상태
-
-백업/복원 중에는 현재 처리 단계와 작업 경과 시간이 계속 표시되고, 진행 바는 작업이 계속 진행 중임을 보여주는 Marquee 방식으로 동작합니다.
-
-파일 수와 크기가 큰 Cursor 데이터는 한 단계가 오래 걸릴 수 있으므로 실제 바이트 퍼센트를 임의로 표시하지 않습니다. 백업/복원 자체가 끝나는 즉시 진행 표시를 종료하고, 백업 목록 새로고침은 그 다음 단계에서 별도로 수행합니다.
-
-## GUI 빌드
-
-```powershell
-cd src\CursorAI.BackupTool
-dotnet restore
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-```
-
-출력 예:
-
-```text
-src\CursorAI.BackupTool\bin\Release\net8.0-windows\win-x64\publish\
-```
+백업과 복원 중에는 현재 작업 단계와 경과 시간이 표시됩니다.
 
 ## 백업 모드
 
-### Normal backup
+### 일반 백업
 
-기본 백업입니다.
+일상적으로 사용하기에 권장되는 기본 모드입니다.
 
-- `%APPDATA%\Cursor`
-  - `%APPDATA%\Cursor\WorkspaceStorage` 제외
-  - `%APPDATA%\Cursor\User\workspaceStorage` 제외
-  - 기존 WebStorage, CachedData, History, 로그 및 Cache 제외 정책 유지
-- `%LOCALAPPDATA%\Cursor`
-  - 존재하는 경우 백업
-  - Cache, GPUCache, Code Cache, Service Worker, Crashpad 제외
-- `%USERPROFILE%\.cursor`
-  - `user-data` 제외
-  - `extensions`는 실파일 그대로 포함
-  - `projects`, `plugins`, `skills-cursor`, `plans` 등 나머지 데이터 포함
+Cursor 설정, 확장 프로그램, 프로젝트 관련 데이터 등을 백업하지만 용량이 큰 WorkspaceStorage 두 위치는 제외합니다.
 
-두 WorkspaceStorage를 기본 제외하므로 Full AI backup보다 작고 빠릅니다.
+제외되는 주요 항목:
 
-`.cursor\extensions`는 Marketplace 연결 상태, 삭제된 확장, 특정 버전, 수동 VSIX/오프라인 설치 확장을 복구할 수 있도록 Normal/Full AI 모두 실파일을 백업합니다.
+- `%APPDATA%\Cursor\WorkspaceStorage`
+- `%APPDATA%\Cursor\User\workspaceStorage`
+- `%USERPROFILE%\.cursor\user-data`
+- 각종 캐시, 로그 등 다시 생성 가능한 데이터
 
-### Full AI backup
+`.cursor\extensions`의 실제 확장 프로그램 파일은 포함됩니다.
 
-Normal backup 범위에 더해 다음 두 위치를 모두 포함합니다.
+### 전체 AI 백업
+
+일반 백업 범위에 더해 다음 WorkspaceStorage 데이터까지 포함합니다.
 
 - `%APPDATA%\Cursor\WorkspaceStorage`
 - `%APPDATA%\Cursor\User\workspaceStorage`
 
-프로젝트별 Workspace 상태와 AI 작업 복구 가능성을 높이는 대신 백업 용량과 시간이 크게 증가할 수 있습니다.
+프로젝트별 작업 상태와 AI 관련 작업 복구 범위를 넓히고 싶을 때 사용합니다.
 
-## v3 아카이브 백업
+WorkspaceStorage 크기에 따라 백업 용량과 시간이 크게 늘어날 수 있습니다.
 
-새 GUI 백업은 수많은 파일을 백업 폴더에 그대로 풀어놓지 않고 영역별 무압축 ZIP으로 묶습니다.
+## 복원
+
+기본 복원은 현재 Cursor 데이터를 바로 삭제하지 않고 임시 위치로 이동한 뒤 백업본을 복원합니다.
+
+복원 중 문제가 발생하면 이동해 둔 기존 데이터를 이용해 롤백을 시도합니다.
+
+일반 백업으로 복원하는 경우 백업에 포함되지 않았던 현재 WorkspaceStorage와 `.cursor\user-data`는 가능한 경우 그대로 보존합니다.
+
+### 복원 전 영구 안전 백업
+
+GUI의 **`복원 전 영구 안전 백업 생성 (느림)`** 옵션을 켜면 복원 전에 현재 Cursor 상태를 별도 백업으로 하나 더 보관합니다.
+
+이 옵션은 데이터가 많은 경우 시간이 오래 걸릴 수 있으므로 기본값은 꺼져 있습니다.
+
+장기 보관용 복구 지점이 필요한 경우에만 사용하는 것을 권장합니다.
+
+## 백업 저장 위치
+
+백업은 프로그램 실행 파일이 있는 위치의 `backups` 폴더에 저장됩니다.
+
+예:
 
 ```text
-backups\yyyy-MM-dd_HHmmss\
-  backup-info.json
-  roaming.zip
-  local.zip          # 해당 범위가 있을 때만
-  cursor-user.zip    # .cursor가 있을 때만
+CursorAI.BackupTool.exe
+backups\
+  2026-09-10_153000\
+  2026-09-10_181500\
 ```
 
-- .NET 내장 ZIP `CompressionLevel.NoCompression`
-- 별도 7-Zip 의존성 없음
-- `.cursor\extensions` 실파일 포함
-- `backup-info.json`에 `totalBytes`를 저장해 새 백업 목록 크기를 빠르게 표시
-- 기존 v2/Legacy 폴더형 백업도 계속 복원 가능
+프로그램을 이동할 경우 기존 `backups` 폴더도 함께 이동하면 기존 백업을 계속 사용할 수 있습니다.
 
-아카이브 목적은 용량 압축보다 **수많은 개별 파일을 몇 개의 컨테이너 파일로 묶어 삭제·이동·전송을 단순화하는 것**입니다.
+## 백업 상태
 
-## 백업 처리
+백업 목록에는 상태가 표시됩니다.
 
-- 백업 폴더: `backups\yyyy-MM-dd_HHmmss`
-- 작업 중: `backups\yyyy-MM-dd_HHmmss.incomplete`
-- 완료된 백업에는 `backup-info.json` 생성
-- `%APPDATA%\Cursor`는 복원에 필요한 필수 범위로 취급하며 없으면 백업 실패
-- `%LOCALAPPDATA%\Cursor`가 없는 환경은 정상적으로 허용하고 안내만 표시
-- Cursor 버전/확장 목록 같은 부가 메타데이터 조회 실패는 백업 데이터 자체가 정상이라면 안내로 표시
-- `.cursor` 전체 백업이 실패하면 백업 실패
-- `sqlite3.exe` 및 자동 `VACUUM`은 사용하지 않음
+- `SUCCESS` — 정상 완료
+- `WARNING` — 백업은 완료됐지만 일부 선택 데이터가 없어 복구 범위가 줄어든 상태
+- `INCOMPLETE` — 백업 도중 중단되었거나 실패한 미완성 백업
+- `LEGACY` — 이전 버전에서 만든 폴더형 백업
 
-백업 결과는 다음 중 하나입니다.
+`INCOMPLETE` 백업은 복원할 수 없습니다.
 
-- `SUCCESS`: 필수 백업 완료
-- `WARNING`: 필수 백업은 완료됐지만 `.cursor` 같은 주요 선택 범위가 존재하지 않는 등 복구 범위가 줄어든 경우
-- `FAILED`: 필수 Roaming 데이터, `.cursor` 데이터 또는 백업 확정 실패
+## Cursor 설치 유형
 
-## 복원 처리
+다음 설치 방식을 모두 지원합니다.
 
-기본 복원은 별도 영구 안전 백업 아카이브를 만들지 않습니다. 대신 현재 Cursor 데이터 폴더를 같은 드라이브의 `*.cursor-backup-old-<timestamp>` 임시 위치로 이동한 뒤 복원을 진행합니다. 복원 중 오류가 발생하면 이 임시 폴더를 원위치로 되돌리는 롤백을 시도합니다.
+- 사용자 설치(User Setup)
+- 시스템 설치(System Setup)
 
-1. Cursor 종료 확인
-2. 현재 Cursor 데이터를 같은 드라이브의 임시 위치로 이동하여 롤백용으로 보존
-3. 선택한 백업을 새로 복원
-4. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\WorkspaceStorage` 보존
-5. 선택한 백업에 없는 현재 `%APPDATA%\Cursor\User\workspaceStorage` 보존
-6. 백업 제외 대상인 `.cursor\user-data` 보존
-7. 위 제외 데이터는 같은 볼륨에서 대용량 재복사하지 않고 디렉터리 이동으로 제자리 복원
-8. 어느 단계든 실패하면 이동된 제외 데이터를 원래 임시 폴더로 되돌린 뒤 기존 Cursor 데이터 전체 롤백 시도
-9. 복원 성공 후 롤백용 임시 폴더 정리
+한 PC에서 만든 백업을 다른 설치 방식의 PC나 VM에 복원하는 경우도 지원하도록 구성되어 있습니다.
 
-`복원 전 영구 안전 백업 생성 (느림)`을 선택하면 기존 방식대로 복원 시작 전에 현재 상태를 `pre-restore_yyyy-MM-dd_HHmmss` v3 아카이브로 별도 보관합니다. 장기 보관용 복구 지점이 필요한 경우에만 사용합니다.
+## 기존 배치 파일
 
-`.incomplete` 백업은 복원할 수 없습니다.
+저장소에는 이전 버전의 배치 기반 도구도 남아 있습니다.
 
-## 검증 상태
-
-2026-09-10 실제 Windows 환경에서 다음을 확인했습니다.
-
-- Cursor 실행 중 백업 시작 시 종료 확인 및 자동 종료
-- 백업 중 Cursor 자동 재실행 문제 수정
-- 백업 완료 후 진행 표시/경과 시간이 계속 유지되는 문제 수정
-- Normal 백업에서 두 WorkspaceStorage 제외 후 용량 감소
-- **User Setup 원본 PC → System Setup VM** 교차 설치 유형으로 백업/복원 완료
-- 교차 설치 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
-- Normal 복원에서 기존 `%APPDATA%\Cursor\User\workspaceStorage`가 보존되는 것 확인
-- Normal 복원에서 `.cursor\extensions`가 VM의 기존 임의 파일을 보존하지 않고 백업본으로 교체되는 것 확인
-
-기본 복원의 영구 `pre-restore` 생성을 선택 옵션으로 바꾸는 최적화는 코드/문서에 반영했으며 별도 수동 검증 단계는 생략합니다.
-
-## Legacy 배치 도구
-
-기존 배치 파일도 저장소에 남아 있습니다.
-
-- `cursor-backup.bat`
-- `cursor-restore.bat`
-- `cursor_extensions_install.bat`
-- `cursor-backups-manage.bat`
-- `cursor_market_vscode.bat`
-- `cursor_market_cursor.bat`
-
-Marketplace 스크립트는 Legacy/고급 기능이며 Cursor 설치의 `product.json`을 직접 수정하므로 일반 백업/복원 기능과 분리해서 사용해야 합니다.
+새로 사용하는 경우에는 GUI 버전인 `CursorAI.BackupTool.exe` 사용을 권장합니다.
 
 ## 주의 사항
 
-`.cursor` 및 Cursor 사용자 데이터에는 프로젝트 경로, AI transcript, MCP 설정, API key/token 등 민감정보가 포함될 수 있습니다. `backups` 폴더는 안전한 위치에 보관하세요.
+Cursor 사용자 데이터에는 프로젝트 경로, AI 작업 기록, MCP 설정, API key/token 등 민감한 정보가 포함될 수 있습니다.
+
+백업 파일을 공개된 위치나 신뢰할 수 없는 저장소에 업로드하지 말고 안전하게 보관하세요.
+
+복원 작업은 현재 Cursor 사용자 데이터를 변경하므로 중요한 작업 환경에서는 필요한 경우 먼저 별도의 백업을 만들어 두는 것을 권장합니다.
+
+## 지원 환경
+
+- Windows 10 이상
+- 64비트 Windows
+- Cursor 에디터
+
+## License
+
+MIT License
