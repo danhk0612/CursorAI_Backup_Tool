@@ -57,12 +57,17 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 
 `totalBytes`가 존재하는 v3 백업은 목록을 표시할 때 전체 백업 내용을 다시 재귀 탐색하지 않는다.
 
-## Rationale
+## Performance policy
 
-아카이브 방식의 목적은 최고 압축률이 아니라 파일 개수를 줄이는 것이다. .NET 내장 ZIP과 `CompressionLevel.Fastest`를 사용하므로 별도 7-Zip 실행 파일이나 외부 압축 프로그램이 필요하지 않다.
+아카이브 방식의 목적은 압축률이 아니라 **파일 개수를 줄이는 것**이다. 초기 구현의 `CompressionLevel.Fastest`도 `.cursor\extensions`처럼 작은 파일이 매우 많은 영역에서는 Deflate CPU 비용 때문에 폴더 복사보다 느려질 수 있어 사용하지 않는다.
+
+현재 v3 생성은 .NET 내장 ZIP의 `CompressionLevel.NoCompression`을 사용한다. 즉 ZIP은 수만 개 파일을 몇 개의 컨테이너 파일로 묶는 용도이며, 원본 크기 절감은 목표로 하지 않는다.
+
+생성 중에는 일정량마다 출력 스트림을 flush해서 탐색기에서도 아카이브 파일 크기 증가를 관찰할 수 있도록 한다. 별도 7-Zip 실행 파일이나 외부 압축 프로그램은 필요하지 않다.
 
 주요 효과:
 
+- 작은 파일 압축에 쓰이던 CPU 시간 제거
 - 백업 폴더 삭제 속도 개선
 - VM/USB/NAS 등으로 백업 이동·복사 단순화
 - 목록 크기 조회 비용 감소
