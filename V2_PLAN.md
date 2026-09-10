@@ -61,14 +61,17 @@ v2의 우선 목표:
 
 1. Cursor 실행 여부 확인
 2. 실행 중이면 사용자 확인 후 자동 종료
-3. 현재 Cursor 데이터를 `pre-restore_yyyy-MM-dd_HHmmss`로 안전 백업
+3. 기본 복원은 현재 Cursor 데이터를 같은 볼륨의 `*.cursor-backup-old-<timestamp>` 경로로 이동해 롤백용으로 유지
 4. 선택한 백업의 필수 데이터 확인
-5. 기존 대상 데이터를 임시 위치로 이동
-6. 백업 데이터 복원
-7. Normal backup에서 제외된 현재 WorkspaceStorage 두 위치 보존
-8. `.cursor\user-data` 보존
-9. 대용량 제외 데이터는 같은 볼륨에서 디렉터리 이동으로 보존
-10. 실패 시 기존 데이터 롤백 시도
+5. 백업 데이터 복원
+6. Normal backup에서 제외된 현재 WorkspaceStorage 두 위치 보존
+7. `.cursor\user-data` 보존
+8. 대용량 제외 데이터는 같은 볼륨에서 디렉터리 이동으로 보존
+9. 실패 시 새 복원 데이터를 정리하고 move-aside한 기존 데이터를 원위치로 롤백 시도
+10. 성공 후 롤백용 임시 데이터 정리
+11. 장기 보관용 `pre-restore_...` 아카이브가 필요한 경우에만 GUI의 `복원 전 영구 안전 백업 생성 (느림)` 옵션 사용
+
+기본 복원은 영구 pre-restore ZIP 생성 단계를 건너뛰어, 실제 VM에서 수 분 이상 걸리던 중복 안전 백업 비용을 제거한다.
 
 ## SQLite 정책
 
@@ -122,7 +125,7 @@ v2의 우선 목표:
 완료
 
 ### T12 — C# WinForms GUI
-구현 완료, Windows 실사용 검증 진행 중
+구현 완료, Windows 실사용 검증 및 성능 개선 반영 중
 
 구현 범위:
 
@@ -131,7 +134,7 @@ v2의 우선 목표:
 - Normal / Full AI 백업 선택
 - 백업 목록, 크기, 상태, 생성 시각
 - 백업 / 복원 / 삭제 / 새로고침
-- 복원 전 안전 백업 및 실패 롤백
+- 기본 move-aside 롤백 및 선택형 영구 pre-restore 백업
 - 단일 GUI 인스턴스
 - 작업 중 창 종료 차단
 
@@ -146,6 +149,7 @@ v2의 우선 목표:
 - 부가 메타데이터 실패는 실제 백업 데이터가 정상이라면 INFO 처리
 - 백업/복원 중 Marquee 진행 바, 현재 처리 단계, 경과 시간 표시
 - 백업 자체 완료 직후 진행 UI를 종료하고 목록 새로고침을 분리
+- 영구 pre-restore 아카이브는 기본 비활성화하고 선택 옵션으로 유지
 
 ### T13 — v3 아카이브 저장 형식
 구현 완료, Windows 실사용 검증 진행 중
@@ -156,7 +160,6 @@ v2의 우선 목표:
 - `totalBytes`를 메타데이터에 저장해 목록 크기 재귀 계산 최소화
 - `.cursor\extensions` 실파일 유지
 - Normal/Full AI WorkspaceStorage 정책 유지
-- pre-restore 안전 백업도 v3 아카이브 사용
 - 기존 v2/Legacy 폴더형 백업 복원 호환 유지
 
 ## 실제 Windows 검증 상태
@@ -169,16 +172,11 @@ v2의 우선 목표:
 - Normal 백업에서 두 WorkspaceStorage 제외 후 백업 용량 감소 확인
 - 원본 PC **User Setup** → 대상 VM **System Setup** 교차 설치 유형으로 백업/복원 완료
 - 교차 설치 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
+- Normal 복원에서 기존 `%APPDATA%\Cursor\User\workspaceStorage` 보존 확인
+- `.cursor\extensions`는 VM의 임의 테스트 파일을 남기지 않고 백업본으로 교체됨을 확인
+- 복원 전 pre-restore 아카이브가 VM에서 수 분 이상 걸리는 것을 확인하고 선택 옵션으로 최적화
 
-남은 확인:
-
-- Normal 복원 시 기존 `%APPDATA%\Cursor\WorkspaceStorage` 보존
-- Normal 복원 시 기존 `%APPDATA%\Cursor\User\workspaceStorage` 보존
-- Normal 복원 시 `.cursor\user-data` 보존
-- Full AI 백업/복원 시 두 WorkspaceStorage 교체
-- 기존 v2/Legacy 폴더 백업 복원
-- 오프라인/VSIX 확장 실파일 복구
-- v3 `NoCompression` 아카이브 백업 성능 재측정
+기본 복원 최적화는 코드/문서 반영까지 진행하고 별도 수동 검증 단계는 생략한다.
 
 ## 변경 원칙
 
