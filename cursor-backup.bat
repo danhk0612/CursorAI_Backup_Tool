@@ -6,12 +6,8 @@ echo "===== Cursor Backup Start ====="
 echo.
 
 set "ROOT=%~dp0"
-set "SQLITE=%ROOT%sqlite3.exe"
 set "BACKUP_ROOT=%ROOT%backups"
 if not exist "%BACKUP_ROOT%" mkdir "%BACKUP_ROOT%"
-
-:: Check required file exists
-if not exist "%SQLITE%" ( echo "[ERR] Can not find sqlite3.exe" & pause & exit )
 
 :: Cursor executable (user install, then system install, else PATH)
 set "CURSOR_CMD=cursor"
@@ -85,7 +81,7 @@ set "FINAL_DEST=%BACKUP_ROOT%\%NAME%"
 set "DEST=%FINAL_DEST%.incomplete"
 
 echo.
-echo "[1/5] Creating temporary folder: %NAME%.incomplete"
+echo "[1/3] Creating temporary folder: %NAME%.incomplete"
 if exist "%DEST%" (
     echo "[ERR] Temporary backup folder already exists: %DEST%"
     pause
@@ -104,7 +100,7 @@ if not exist "%DEST%" (
 )
 
 echo.
-echo "[2/5] Copying settings and extensions..."
+echo "[2/3] Copying Cursor data..."
 
 if exist "%APPDATA%\Cursor" (
     if "!WORKSPACE_INCLUDED!"=="1" (
@@ -139,7 +135,7 @@ if exist "%USERPROFILE%\.cursor" (
 
 :: Use call when invoking Cursor so PATH-resolved batch launchers return to this script.
 echo.
-echo "[3/5] Creating information files..."
+echo "[3/3] Creating information files..."
 call "%CURSOR_CMD%" --version > "%DEST%\cursor_version.txt" 2>nul
 if errorlevel 1 (
     set "BACKUP_WARNING=1"
@@ -156,27 +152,6 @@ call "%CURSOR_CMD%" --list-extensions --show-versions > "%DEST%\extensions_with_
 if errorlevel 1 (
     if exist "%DEST%\extensions_with_versions.txt" del /f /q "%DEST%\extensions_with_versions.txt" >nul 2>&1
     echo "Note: Extension version list is not available; extensions.txt will be used."
-)
-
-echo.
-echo "[4/5] Optimizing database (VACUUM)..."
-set "DBPATH=%DEST%\Roaming\Cursor\User\globalStorage"
-if exist "%DBPATH%\state.vscdb" (
-    "%SQLITE%" "%DBPATH%\state.vscdb" "VACUUM"
-    if errorlevel 1 (
-        set "BACKUP_WARNING=1"
-        echo "Warning: Database VACUUM failed. The copied database is still kept."
-    )
-)
-
-echo.
-echo "[5/5] File cleanup"
-if exist "%DBPATH%\state.vscdb.backup" (
-    del /f /q "%DBPATH%\state.vscdb.backup"
-    if errorlevel 1 (
-        set "BACKUP_WARNING=1"
-        echo "Warning: Could not remove state.vscdb.backup from the backup folder."
-    )
 )
 
 set "BACKUP_STATUS=SUCCESS"
