@@ -97,6 +97,8 @@ internal sealed class BackupService
                     cursorVersion = fileVersion.ProductVersion ?? fileVersion.FileVersion;
                     if (!string.IsNullOrWhiteSpace(cursorVersion))
                         await File.WriteAllTextAsync(Path.Combine(tempPath, "cursor_version.txt"), cursorVersion, Encoding.UTF8);
+                    else
+                        infos.Add("Cursor 실행 파일의 버전 정보가 비어 있습니다.");
                 }
                 catch
                 {
@@ -170,13 +172,6 @@ internal sealed class BackupService
             return new(false, "같은 시각의 복원 안전 백업 폴더가 이미 존재합니다.");
         Directory.CreateDirectory(safetyTemp);
 
-        string? oldRoaming = null;
-        string? oldLocal = null;
-        string? oldUser = null;
-        string? preservedRootWorkspace = null;
-        string? preservedUserWorkspace = null;
-        string? preservedUserData = null;
-
         try
         {
             progress?.Report(new(10, "현재 상태 안전 백업 중..."));
@@ -198,38 +193,38 @@ internal sealed class BackupService
             var restoreLocal = Directory.Exists(sourceLocal);
             var restoreUser = Directory.Exists(sourceUser);
 
-            oldRoaming = _roamingCursor + $".cursor-backup-old-{stamp}";
-            oldLocal = _localCursor + $".cursor-backup-old-{stamp}";
-            oldUser = _userCursor + $".cursor-backup-old-{stamp}";
+            var oldRoaming = _roamingCursor + $".cursor-backup-old-{stamp}";
+            var oldLocal = _localCursor + $".cursor-backup-old-{stamp}";
+            var oldUser = _userCursor + $".cursor-backup-old-{stamp}";
+            var hadRoaming = false;
+            var hadLocal = false;
+            var hadUser = false;
 
             progress?.Report(new(30, "현재 Cursor 데이터 분리 중..."));
-            var hadRoaming = MoveAsideIfExists(_roamingCursor, oldRoaming);
-            var hadLocal = restoreLocal && MoveAsideIfExists(_localCursor, oldLocal);
-            var hadUser = restoreUser && MoveAsideIfExists(_userCursor, oldUser);
-
             try
             {
-                if (hadRoaming)
-                {
-                    if (!Directory.Exists(Path.Combine(sourceRoaming, "WorkspaceStorage")))
-                        preservedRootWorkspace = MoveToPreserveIfExists(Path.Combine(oldRoaming, "WorkspaceStorage"), _roamingCursor + $".preserve-root-workspace-{stamp}");
-                    if (!Directory.Exists(Path.Combine(sourceRoaming, "User", "workspaceStorage")))
-                        preservedUserWorkspace = MoveToPreserveIfExists(Path.Combine(oldRoaming, "User", "workspaceStorage"), _roamingCursor + $".preserve-user-workspace-{stamp}");
-                }
-
-                if (hadUser && !Directory.Exists(Path.Combine(sourceUser, "user-data")))
-                    preservedUserData = MoveToPreserveIfExists(Path.Combine(oldUser, "user-data"), _userCursor + $".preserve-user-data-{stamp}");
+                hadRoaming = MoveAsideIfExists(_roamingCursor, oldRoaming);
+                hadLocal = restoreLocal && MoveAsideIfExists(_localCursor, oldLocal);
+                hadUser = restoreUser && MoveAsideIfExists(_userCursor, oldUser);
             }
             catch
             {
-                RestorePreservedToOld(preservedRootWorkspace, oldRoaming, "WorkspaceStorage");
-                RestorePreservedToOld(preservedUserWorkspace, oldRoaming, Path.Combine("User", "workspaceStorage"));
-                RestorePreservedToOld(preservedUserData, oldUser, "user-data");
                 if (hadUser && Directory.Exists(oldUser) && !Directory.Exists(_userCursor)) Directory.Move(oldUser, _userCursor);
                 if (hadLocal && Directory.Exists(oldLocal) && !Directory.Exists(_localCursor)) Directory.Move(oldLocal, _localCursor);
                 if (hadRoaming && Directory.Exists(oldRoaming) && !Directory.Exists(_roamingCursor)) Directory.Move(oldRoaming, _roamingCursor);
                 throw;
             }
+
+            var preserveRootWorkspace = hadRoaming && !Directory.Exists(Path.Combine(sourceRoaming, "WorkspaceStorage"))
+                && Directory.Exists(Path.Combine(oldRoaming, "WorkspaceStorage"));
+            var preserveUserWorkspace = hadRoaming && !Directory.Exists(Path.Combine(sourceRoaming, "User", "workspaceStorage"))
+                && Directory.Exists(Path.Combine(oldRoaming, "User", "workspaceStorage"));
+            var preserveUserData = hadUser && restoreUser && !Directory.Exists(Path.Combine(sourceUser, "user-data"))
+                && Directory.Exists(Path.Combine(oldUser, "user-data"));
+
+            var movedRootWorkspace = false;
+            var movedUserWorkspace = false;
+            var movedUserData = false;
 
             try
             {
@@ -249,23 +244,36 @@ internal sealed class BackupService
                 }
 
                 progress?.Report(new(88, "백업 제외 데이터 제자리 이동 중..."));
-                MovePreservedIntoTarget(preservedRootWorkspace, Path.Combine(_roamingCursor, "WorkspaceStorage"));
-                preservedRootWorkspace = null;
-                MovePreservedIntoTarget(preservedUserWorkspace, Path.Combine(_roamingCursor, "User", "workspaceStorage"));
-                preservedUserWorkspace = null;
-                MovePreservedIntoTarget(preservedUserData, Path.Combine(_userCursor, "user-data"));
-                preservedUserData = null;
+                if (preserveRootWorkspace)
+                {
+                    MoveDirectory(Path.Combine(oldRoaming, "WorkspaceStorage"), Path.Combine(_roamingCursor, "WorkspaceStorage"));
+                    movedRootWorkspace = true;
+                }
+                if (preserveUserWorkspace)
+                {
+                    MoveDirectory(Path.Combine(oldRoaming, "User", "workspaceStorage"), Path.Combine(_roamingCursor, "User", "workspaceStorage"));
+                    movedUserWorkspace = true;
+                }
+                if (preserveUserData)
+                {
+                    MoveDirectory(Path.Combine(oldUser, "user-data"), Path.Combine(_userCursor, "user-data"));
+                    movedUserData = true;
+                }
             }
             catch
             {
                 progress?.Report(new(90, "복원 실패 - 기존 데이터 롤백 중..."));
+
+                if (movedUserData)
+                    MoveDirectoryIfExists(Path.Combine(_userCursor, "user-data"), Path.Combine(oldUser, "user-data"));
+                if (movedUserWorkspace)
+                    MoveDirectoryIfExists(Path.Combine(_roamingCursor, "User", "workspaceStorage"), Path.Combine(oldRoaming, "User", "workspaceStorage"));
+                if (movedRootWorkspace)
+                    MoveDirectoryIfExists(Path.Combine(_roamingCursor, "WorkspaceStorage"), Path.Combine(oldRoaming, "WorkspaceStorage"));
+
                 DeleteIfExists(_roamingCursor);
                 if (restoreLocal) DeleteIfExists(_localCursor);
                 if (restoreUser) DeleteIfExists(_userCursor);
-
-                RestorePreservedToOld(preservedRootWorkspace, oldRoaming, "WorkspaceStorage");
-                RestorePreservedToOld(preservedUserWorkspace, oldRoaming, Path.Combine("User", "workspaceStorage"));
-                RestorePreservedToOld(preservedUserData, oldUser, "user-data");
 
                 if (hadRoaming && Directory.Exists(oldRoaming)) Directory.Move(oldRoaming, _roamingCursor);
                 if (hadLocal && Directory.Exists(oldLocal)) Directory.Move(oldLocal, _localCursor);
@@ -485,31 +493,22 @@ internal sealed class BackupService
         return new(executable, cli);
     }
 
-    private static string? MoveToPreserveIfExists(string source, string destination)
+    private static void MoveDirectory(string source, string target)
     {
-        if (!Directory.Exists(source)) return null;
-        if (Directory.Exists(destination)) throw new IOException($"보존용 임시 폴더가 이미 존재합니다: {destination}");
-        Directory.Move(source, destination);
-        return destination;
-    }
-
-    private static void MovePreservedIntoTarget(string? preserved, string target)
-    {
-        if (preserved is null || !Directory.Exists(preserved)) return;
-        if (Directory.Exists(target)) throw new IOException($"보존 데이터 대상 경로가 이미 존재합니다: {target}");
+        if (!Directory.Exists(source)) return;
+        if (Directory.Exists(target)) throw new IOException($"대상 폴더가 이미 존재합니다: {target}");
         var parent = Path.GetDirectoryName(target);
         if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
-        Directory.Move(preserved, target);
+        Directory.Move(source, target);
     }
 
-    private static void RestorePreservedToOld(string? preserved, string? oldRoot, string relativeTarget)
+    private static void MoveDirectoryIfExists(string source, string target)
     {
-        if (preserved is null || oldRoot is null || !Directory.Exists(preserved)) return;
-        var target = Path.Combine(oldRoot, relativeTarget);
-        if (Directory.Exists(target)) return;
+        if (!Directory.Exists(source)) return;
+        if (Directory.Exists(target)) throw new IOException($"롤백 대상 폴더가 이미 존재합니다: {target}");
         var parent = Path.GetDirectoryName(target);
         if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
-        Directory.Move(preserved, target);
+        Directory.Move(source, target);
     }
 
     private static Task WriteInfoAsync(string folder, BackupInfo info) =>
