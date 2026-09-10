@@ -29,11 +29,26 @@ if %errorlevel%==0 (
     )
 )
 
-:: Warn if any data path is missing
-if not exist "%APPDATA%\Cursor" set "MISSING=1"
-if not exist "%LOCALAPPDATA%\Cursor" set "MISSING=1"
-if not exist "%USERPROFILE%\.cursor" set "MISSING=1"
-if defined MISSING echo "Warning: One or more Cursor data paths not found. Backup may be incomplete."
+:: Backup result state
+set "BACKUP_FAILED=0"
+set "BACKUP_WARNING=0"
+set "RC_ROAMING=-"
+set "RC_LOCAL=-"
+set "RC_USER=-"
+
+:: Warn if any data path is missing. Missing paths are warnings, not copy failures.
+if not exist "%APPDATA%\Cursor" (
+    set "BACKUP_WARNING=1"
+    echo "Warning: %APPDATA%\Cursor not found. Roaming data will be skipped."
+)
+if not exist "%LOCALAPPDATA%\Cursor" (
+    set "BACKUP_WARNING=1"
+    echo "Warning: %LOCALAPPDATA%\Cursor not found. Local data will be skipped."
+)
+if not exist "%USERPROFILE%\.cursor" (
+    set "BACKUP_WARNING=1"
+    echo "Warning: %USERPROFILE%\.cursor not found. User .cursor data will be skipped."
+)
 
 :: Backup folder name (date_time)
 for /f "tokens=1-2 delims= " %%a in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HHmm'"') do (
@@ -46,37 +61,101 @@ set "DEST=%BACKUP_ROOT%\%NAME%"
 echo.
 echo "[1/5] Creating temporary folder: %NAME%"
 if not exist "%DEST%" mkdir "%DEST%"
+if not exist "%DEST%" (
+    echo "[ERR] Failed to create backup folder: %DEST%"
+    pause
+    exit /b 1
+)
 
 echo.
 echo "[2/5] Copying settings and extensions..."
-robocopy "%APPDATA%\Cursor" "%DEST%\Roaming\Cursor" /E /R:1 /W:1 /XD WorkspaceStorage User\WebStorage User\CachedData User\History User\logs logs Cache >nul
-robocopy "%LOCALAPPDATA%\Cursor" "%DEST%\Local\Cursor" /E /R:1 /W:1 /XD Cache GPUCache "Code Cache" "Service Worker" Crashpad >nul
-robocopy "%USERPROFILE%\.cursor" "%DEST%\User\.cursor" /E /R:1 /W:1 /XD user-data >nul
-set "RC_ERR=%errorlevel%"
+
+if exist "%APPDATA%\Cursor" (
+    robocopy "%APPDATA%\Cursor" "%DEST%\Roaming\Cursor" /E /R:1 /W:1 /XD WorkspaceStorage User\WebStorage User\CachedData User\History User\logs logs Cache >nul
+    set "RC_ROAMING=!errorlevel!"
+    if !RC_ROAMING! geq 8 (
+        set "BACKUP_FAILED=1"
+        echo "[ERR] Roaming Cursor copy failed (robocopy exit code !RC_ROAMING!)."
+    )
+)
+
+if exist "%LOCALAPPDATA%\Cursor" (
+    robocopy "%LOCALAPPDATA%\Cursor" "%DEST%\Local\Cursor" /E /R:1 /W:1 /XD Cache GPUCache "Code Cache" "Service Worker" Crashpad >nul
+    set "RC_LOCAL=!errorlevel!"
+    if !RC_LOCAL! geq 8 (
+        set "BACKUP_FAILED=1"
+        echo "[ERR] Local Cursor copy failed (robocopy exit code !RC_LOCAL!)."
+    )
+)
+
+if exist "%USERPROFILE%\.cursor" (
+    robocopy "%USERPROFILE%\.cursor" "%DEST%\User\.cursor" /E /R:1 /W:1 /XD user-data >nul
+    set "RC_USER=!errorlevel!"
+    if !RC_USER! geq 8 (
+        set "BACKUP_FAILED=1"
+        echo "[ERR] User .cursor copy failed (robocopy exit code !RC_USER!)."
+    )
+)
 
 :: Use call when invoking cursor so this script does not exit
 echo.
 echo "[3/5] Creating information files..."
 call cursor --version > "%DEST%\cursor_version.txt" 2>nul
+if errorlevel 1 (
+    set "BACKUP_WARNING=1"
+    echo "Warning: Could not create cursor_version.txt."
+)
 call cursor --list-extensions > "%DEST%\extensions.txt" 2>nul
+if errorlevel 1 (
+    set "BACKUP_WARNING=1"
+    echo "Warning: Could not create extensions.txt."
+)
 
 echo.
 echo "[4/5] Optimizing database (VACUUM)..."
 set "DBPATH=%DEST%\Roaming\Cursor\User\globalStorage"
 if exist "%DBPATH%\state.vscdb" (
     "%SQLITE%" "%DBPATH%\state.vscdb" "VACUUM"
+    if errorlevel 1 (
+        set "BACKUP_WARNING=1"
+        echo "Warning: Database VACUUM failed. The copied database is still kept."
+    )
 )
 
 echo.
 echo "[5/5] File cleanup"
 if exist "%DBPATH%\state.vscdb.backup" (
-    del /f /q "%DBPATH%\state.vscdb.backup" 
+    del /f /q "%DBPATH%\state.vscdb.backup"
+    if errorlevel 1 (
+        set "BACKUP_WARNING=1"
+        echo "Warning: Could not remove state.vscdb.backup from the backup folder."
+    )
 )
 
-if %RC_ERR% gtr 7 echo "Warning: Some files may not have been copied (robocopy exit code %RC_ERR%)."
-
 echo.
-echo "===== All backup tasks completed! ====="
+echo "===== Backup Result ====="
+echo "Roaming copy : !RC_ROAMING!"
+echo "Local copy   : !RC_LOCAL!"
+echo "User .cursor : !RC_USER!"
+
+if "!BACKUP_FAILED!"=="1" (
+    echo "Status       : FAILED"
+    echo "One or more required data copy operations failed."
+    echo "Backup folder: %NAME%"
+    echo.
+    pause
+    exit /b 1
+)
+
+if "!BACKUP_WARNING!"=="1" (
+    echo "Status       : WARNING"
+    echo "Backup completed, but one or more optional items were skipped or failed."
+) else (
+    echo "Status       : SUCCESS"
+    echo "All backup tasks completed successfully."
+)
+
 echo "Created folder: %NAME%"
 echo.
 pause
+exit /b 0
