@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace CursorAI.BackupTool;
 
 internal sealed class MainForm : Form
@@ -11,13 +13,18 @@ internal sealed class MainForm : Form
     private readonly Button _deleteButton = new() { Text = "삭제", Width = 100 };
     private readonly Button _refreshButton = new() { Text = "새로 고침", Width = 100 };
     private readonly Label _statusLabel = new() { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+    private readonly ProgressBar _progressBar = new() { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Visible = false };
+    private readonly Label _progressLabel = new() { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Visible = false };
+    private readonly System.Windows.Forms.Timer _elapsedTimer = new() { Interval = 1000 };
+    private readonly Stopwatch _stopwatch = new();
+    private string _currentProgressMessage = string.Empty;
 
     public MainForm()
     {
         Text = "CursorAI Backup Tool";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(860, 520);
-        Size = new Size(1000, 620);
+        MinimumSize = new Size(860, 560);
+        Size = new Size(1000, 660);
 
         BuildLayout();
         ConfigureGrid();
@@ -26,6 +33,7 @@ internal sealed class MainForm : Form
         _restoreButton.Click += async (_, _) => await RestoreAsync();
         _deleteButton.Click += async (_, _) => await DeleteAsync();
         _refreshButton.Click += async (_, _) => await RefreshBackupsAsync();
+        _elapsedTimer.Tick += (_, _) => UpdateProgressText();
         Shown += async (_, _) => await RefreshBackupsAsync();
     }
 
@@ -35,12 +43,14 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 6,
             Padding = new Padding(12)
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
 
         var title = new Label
@@ -70,7 +80,9 @@ internal sealed class MainForm : Form
         root.Controls.Add(title, 0, 0);
         root.Controls.Add(controls, 0, 1);
         root.Controls.Add(_grid, 0, 2);
-        root.Controls.Add(_statusLabel, 0, 3);
+        root.Controls.Add(_progressLabel, 0, 3);
+        root.Controls.Add(_progressBar, 0, 4);
+        root.Controls.Add(_statusLabel, 0, 5);
         Controls.Add(root);
     }
 
@@ -95,7 +107,7 @@ internal sealed class MainForm : Form
 
     private async Task BackupAsync()
     {
-        if (!EnsureCursorStopped()) return;
+        if (!EnsureCursorStoppedForOperation("백업")) return;
 
         if (_fullRadio.Checked)
         {
@@ -107,9 +119,9 @@ internal sealed class MainForm : Form
             if (answer != DialogResult.Yes) return;
         }
 
-        await RunBusyAsync("백업 중...", async () =>
+        await RunBusyAsync("백업 준비 중...", async progress =>
         {
-            var result = await _service.CreateBackupAsync(_fullRadio.Checked);
+            var result = await _service.CreateBackupAsync(_fullRadio.Checked, progress);
             ShowResult(result);
             await RefreshBackupsAsync();
         });
@@ -128,7 +140,7 @@ internal sealed class MainForm : Form
             MessageBox.Show("완료되지 않은 백업은 복원할 수 없습니다.", "복원", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        if (!EnsureCursorStopped()) return;
+        if (!EnsureCursorStoppedForOperation("복원")) return;
 
         var answer = MessageBox.Show(
             $"'{record.Name}' 백업으로 복원합니다.\r\n복원 전에 현재 상태의 안전 백업을 자동 생성합니다.\r\n계속하시겠습니까?",
@@ -137,9 +149,9 @@ internal sealed class MainForm : Form
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return;
 
-        await RunBusyAsync("복원 중...", async () =>
+        await RunBusyAsync("복원 준비 중...", async progress =>
         {
-            var result = await _service.RestoreAsync(record);
+            var result = await _service.RestoreAsync(record, progress);
             ShowResult(result);
             await RefreshBackupsAsync();
         });
@@ -161,12 +173,12 @@ internal sealed class MainForm : Form
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return;
 
-        await RunBusyAsync("삭제 중...", async () =>
+        await RunBusyAsync("삭제 중...", async _ =>
         {
             var result = await Task.Run(() => _service.DeleteBackup(record));
             ShowResult(result);
             await RefreshBackupsAsync();
-        });
+        }, showProgress: false);
     }
 
     private async Task RefreshBackupsAsync()
@@ -185,21 +197,30 @@ internal sealed class MainForm : Form
         }
     }
 
-    private bool EnsureCursorStopped()
+    private bool EnsureCursorStoppedForOperation(string operationName)
     {
         if (!_service.IsCursorRunning()) return true;
 
         var answer = MessageBox.Show(
-            "Cursor가 실행 중입니다. 안전한 작업을 위해 Cursor를 종료하시겠습니까?",
+            $"Cursor가 현재 실행 중입니다.\r\n안전한 {operationName}을 위해 Cursor를 자동 종료한 뒤 계속하시겠습니까?",
             "Cursor 실행 중",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return false;
 
+        SetStatus("Cursor 종료 중...");
         _service.StopCursor();
+
+        var waitUntil = DateTime.UtcNow.AddSeconds(5);
+        while (_service.IsCursorRunning() && DateTime.UtcNow < waitUntil)
+        {
+            Application.DoEvents();
+            Thread.Sleep(100);
+        }
+
         if (_service.IsCursorRunning())
         {
-            MessageBox.Show("Cursor를 완전히 종료하지 못했습니다. 직접 종료한 뒤 다시 시도하십시오.", "Cursor 종료 실패", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show("Cursor를 완전히 종료하지 못했습니다. 작업을 시작하지 않습니다.", "Cursor 종료 실패", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
         return true;
@@ -207,12 +228,51 @@ internal sealed class MainForm : Form
 
     private BackupRecord? SelectedBackup() => _grid.CurrentRow?.DataBoundItem as BackupRecord;
 
-    private async Task RunBusyAsync(string status, Func<Task> action)
+    private async Task RunBusyAsync(string initialStatus, Func<IProgress<OperationProgress>, Task> action, bool showProgress = true)
     {
         SetBusy(true);
-        SetStatus(status);
-        try { await action(); }
-        finally { SetBusy(false); }
+        BeginProgress(initialStatus, showProgress);
+        var progress = new Progress<OperationProgress>(p =>
+        {
+            _progressBar.Value = Math.Clamp(p.Percent, 0, 100);
+            _currentProgressMessage = p.Message;
+            UpdateProgressText();
+        });
+
+        try { await action(progress); }
+        finally
+        {
+            EndProgress();
+            SetBusy(false);
+        }
+    }
+
+    private void BeginProgress(string message, bool showProgress)
+    {
+        _currentProgressMessage = message;
+        _progressBar.Value = 0;
+        _progressBar.Visible = showProgress;
+        _progressLabel.Visible = showProgress;
+        _stopwatch.Restart();
+        _elapsedTimer.Start();
+        UpdateProgressText();
+        SetStatus(message);
+    }
+
+    private void EndProgress()
+    {
+        _elapsedTimer.Stop();
+        _stopwatch.Stop();
+        _progressBar.Visible = false;
+        _progressLabel.Visible = false;
+    }
+
+    private void UpdateProgressText()
+    {
+        if (!_stopwatch.IsRunning && _stopwatch.Elapsed == TimeSpan.Zero) return;
+        _progressLabel.Text = $"{_currentProgressMessage}   ·   경과 {_stopwatch.Elapsed:hh\\:mm\\:ss}";
+        if (_progressBar.Visible)
+            SetStatus($"작업 진행 중 · {_progressBar.Value}% · 경과 {_stopwatch.Elapsed:hh\\:mm\\:ss}");
     }
 
     private void SetBusy(bool busy)
@@ -223,6 +283,7 @@ internal sealed class MainForm : Form
         _refreshButton.Enabled = !busy;
         _normalRadio.Enabled = !busy;
         _fullRadio.Enabled = !busy;
+        _grid.Enabled = !busy;
     }
 
     private void SetStatus(string text) => _statusLabel.Text = text;
