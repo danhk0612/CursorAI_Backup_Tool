@@ -16,6 +16,17 @@ internal static class ArchiveStorage
     public static Task ExtractAsync(string archivePath, string destinationRoot)
         => Task.Run(() => Extract(archivePath, destinationRoot));
 
+    public static bool ContainsPath(string archivePath, string relativePath)
+    {
+        var prefix = relativePath.Replace('\\', '/').Trim('/');
+        if (prefix.Length == 0) return false;
+        prefix += "/";
+
+        using var archive = ZipFile.OpenRead(archivePath);
+        return archive.Entries.Any(entry =>
+            entry.FullName.Replace('\\', '/').StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static void Create(
         string sourceRoot,
         string archivePath,
