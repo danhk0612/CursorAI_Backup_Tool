@@ -121,12 +121,12 @@ internal sealed class MainForm : Form
             if (answer != DialogResult.Yes) return;
         }
 
-        await RunBusyAsync("백업 준비 중...", async progress =>
-        {
-            var result = await _service.CreateBackupAsync(_fullRadio.Checked, progress);
-            ShowResult(result);
-            await RefreshBackupsAsync();
-        });
+        var result = await RunOperationAsync(
+            "백업 준비 중...",
+            progress => _service.CreateBackupAsync(_fullRadio.Checked, progress));
+
+        ShowResult(result);
+        await RefreshBackupsAsync();
     }
 
     private async Task RestoreAsync()
@@ -151,12 +151,12 @@ internal sealed class MainForm : Form
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return;
 
-        await RunBusyAsync("복원 준비 중...", async progress =>
-        {
-            var result = await _service.RestoreAsync(record, progress);
-            ShowResult(result);
-            await RefreshBackupsAsync();
-        });
+        var result = await RunOperationAsync(
+            "복원 준비 중...",
+            progress => _service.RestoreAsync(record, progress));
+
+        ShowResult(result);
+        await RefreshBackupsAsync();
     }
 
     private async Task DeleteAsync()
@@ -175,12 +175,20 @@ internal sealed class MainForm : Form
             MessageBoxIcon.Warning);
         if (answer != DialogResult.Yes) return;
 
-        await RunBusyAsync("삭제 중...", async _ =>
+        SetBusy(true);
+        SetStatus("삭제 중...");
+        OperationResult result;
+        try
         {
-            var result = await Task.Run(() => _service.DeleteBackup(record));
-            ShowResult(result);
-            await RefreshBackupsAsync();
-        }, showProgress: false);
+            result = await Task.Run(() => _service.DeleteBackup(record));
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+
+        ShowResult(result);
+        await RefreshBackupsAsync();
     }
 
     private async Task RefreshBackupsAsync()
@@ -230,17 +238,26 @@ internal sealed class MainForm : Form
 
     private BackupRecord? SelectedBackup() => _grid.CurrentRow?.DataBoundItem as BackupRecord;
 
-    private async Task RunBusyAsync(string initialStatus, Func<IProgress<OperationProgress>, Task> action, bool showProgress = true)
+    private async Task<OperationResult> RunOperationAsync(
+        string initialStatus,
+        Func<IProgress<OperationProgress>, Task<OperationResult>> action)
     {
         SetBusy(true);
-        BeginProgress(initialStatus, showProgress);
+        BeginProgress(initialStatus);
         var progress = new Progress<OperationProgress>(p =>
         {
             _currentProgressMessage = p.Message;
             UpdateProgressText();
         });
 
-        try { await action(progress); }
+        try
+        {
+            return await action(progress);
+        }
+        catch (Exception ex)
+        {
+            return new OperationResult(false, ex.Message);
+        }
         finally
         {
             EndProgress();
@@ -248,13 +265,13 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void BeginProgress(string message, bool showProgress)
+    private void BeginProgress(string message)
     {
         _currentProgressMessage = message;
         _progressBar.Style = ProgressBarStyle.Marquee;
         _progressBar.MarqueeAnimationSpeed = 25;
-        _progressBar.Visible = showProgress;
-        _progressLabel.Visible = showProgress;
+        _progressBar.Visible = true;
+        _progressLabel.Visible = true;
         _stopwatch.Restart();
         _elapsedTimer.Start();
         UpdateProgressText();
@@ -265,8 +282,10 @@ internal sealed class MainForm : Form
     {
         _elapsedTimer.Stop();
         _stopwatch.Stop();
+        _progressBar.MarqueeAnimationSpeed = 0;
         _progressBar.Visible = false;
         _progressLabel.Visible = false;
+        _currentProgressMessage = string.Empty;
     }
 
     private void UpdateProgressText()
