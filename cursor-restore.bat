@@ -141,6 +141,15 @@ if "!SAFETY_FAILED!"=="1" (
     exit /b 1
 )
 
+set "SAFETY_TEMP_ENV=!SAFETY_TEMP!"
+powershell -NoProfile -Command "$obj = [ordered]@{ backupVersion = 2; createdAt = (Get-Date).ToString('o'); cursorVersion = $null; type = 'pre-restore'; workspaceStorageIncluded = $true; status = 'SUCCESS' }; $obj | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $env:SAFETY_TEMP_ENV 'backup-info.json') -Encoding UTF8" >nul 2>&1
+if errorlevel 1 (
+    echo "[ERR] Could not create metadata for the pre-restore safety backup."
+    echo "Restore was not started."
+    pause
+    exit /b 1
+)
+
 move "!SAFETY_TEMP!" "!SAFETY_FINAL!" >nul
 if errorlevel 1 (
     echo "[ERR] Could not finalize pre-restore safety backup."
