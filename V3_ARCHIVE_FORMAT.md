@@ -40,7 +40,13 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - v3 archive: `roaming.zip`, `local.zip`, `cursor-user.zip`을 직접 해제한다.
 - v2/Legacy folder: 기존 `Roaming\Cursor`, `Local\Cursor`, `User\.cursor` 폴더 구조를 계속 지원한다.
 - Normal 복원에서는 백업에 포함되지 않은 현재 WorkspaceStorage 두 위치와 `.cursor\user-data`를 같은 볼륨의 디렉터리 이동으로 보존한다.
-- 복원 전 현재 상태는 v3 `pre-restore_...` 아카이브 백업으로 남긴다.
+- 기본 복원은 현재 Cursor 데이터 폴더를 같은 볼륨의 `*.cursor-backup-old-<timestamp>` 위치로 먼저 이동해 롤백용으로 보존한다.
+- 복원이 실패하면 새로 생성된 복원 데이터를 정리하고 move-aside한 기존 폴더를 원위치로 되돌린다.
+- 복원이 성공한 뒤에만 move-aside 롤백 폴더를 삭제한다.
+- 별도의 `pre-restore_...` 영구 아카이브는 기본 생성하지 않는다.
+- GUI의 `복원 전 영구 안전 백업 생성 (느림)` 옵션을 켠 경우에만 기존 pre-restore 아카이브 경로를 사용한다.
+
+이 변경은 동일 데이터를 매 복원마다 다시 ZIP으로 묶느라 수 분 이상 걸리던 선행 단계를 기본 경로에서 제거하기 위한 것이다. move-aside는 같은 볼륨 내 디렉터리 이름/위치 변경이므로 대용량 재복사를 하지 않는다.
 
 ## Metadata
 
@@ -72,6 +78,7 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - VM/USB/NAS 등으로 백업 이동·복사 단순화
 - 목록 크기 조회 비용 감소
 - 수많은 작은 파일을 백업 대상 폴더에 개별 생성하는 비용 감소
+- 기본 복원에서 pre-restore 아카이브 생성 시간을 제거
 
 복원 시에는 실제 Cursor 데이터 파일을 다시 생성해야 하므로 파일 수에 따른 복원 시간 자체를 완전히 제거할 수는 없다.
 
@@ -84,8 +91,6 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - 원본 PC에서 백업 생성 후 VM에서 복원 완료
 - 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
 
-이 결과로 v3 백업 데이터가 Cursor 설치 위치 자체에 종속되지 않고 User Setup → System Setup 환경 간에도 복원 가능한 것을 1차 확인했다.
-
 Normal 복원 보존 정책도 실제 VM에서 다음과 같이 확인했다.
 
 - VM의 `%APPDATA%\Cursor\User\workspaceStorage`에 테스트 파일을 만든 뒤 Normal 복원 수행
@@ -93,14 +98,6 @@ Normal 복원 보존 정책도 실제 VM에서 다음과 같이 확인했다.
 - VM의 `.cursor\extensions`에만 있던 테스트 파일은 복원 후 사라짐을 확인
 - 이는 extensions가 보존 대상이 아니라 백업본의 실제 확장 파일로 교체되는 현재 정책과 일치함
 
-현재 VM에는 `%APPDATA%\Cursor\WorkspaceStorage`와 `.cursor\user-data`가 존재하지 않아 해당 두 위치의 보존은 아직 실제 검증하지 못했다.
+현재 VM에는 `%APPDATA%\Cursor\WorkspaceStorage`와 `.cursor\user-data`가 존재하지 않아 해당 두 위치의 보존은 실제 검증하지 못했다.
 
-아직 별도 확인이 필요한 항목:
-
-- Normal 복원 시 기존 `%APPDATA%\Cursor\WorkspaceStorage` 보존 (대상 VM에 실제 폴더가 있을 때)
-- Normal 복원 시 기존 `.cursor\user-data` 보존 (대상 VM에 실제 폴더가 있을 때)
-- Full AI 백업/복원 시 두 WorkspaceStorage 교체 확인
-- 기존 v2/Legacy 폴더 백업 복원 호환성
-- 오프라인/VSIX 설치 확장의 실제 복구 확인
-- `NoCompression` 적용 후 백업 시간 재측정
-- 복원 전 pre-restore 안전 백업의 긴 수행 시간 및 진행 가시성 개선
+복원 전 pre-restore 아카이브가 수 분 이상 걸리는 실제 VM 결과를 바탕으로, 영구 안전 백업은 선택 옵션으로 변경했다. 기본 경로는 이미 구현되어 있던 move-aside/rollback을 사용한다. 이 최적화에 대한 별도 수동 검증 단계는 생략한다.
