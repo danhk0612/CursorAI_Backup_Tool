@@ -58,10 +58,10 @@ internal sealed class OptimizedRestoreService
         var restoreUser = archiveV3 ? File.Exists(sourceUserArchive) : Directory.Exists(sourceUserFolder);
 
         var sourceHasRootWorkspace = archiveV3
-            ? record.WorkspaceStorageIncluded
+            ? ArchiveStorage.ContainsPath(sourceRoamingArchive, "WorkspaceStorage")
             : Directory.Exists(Path.Combine(sourceRoamingFolder, "WorkspaceStorage"));
         var sourceHasUserWorkspace = archiveV3
-            ? record.WorkspaceStorageIncluded
+            ? ArchiveStorage.ContainsPath(sourceRoamingArchive, "User/workspaceStorage")
             : Directory.Exists(Path.Combine(sourceRoamingFolder, "User", "workspaceStorage"));
         var sourceHasUserData = !archiveV3 && restoreUser && Directory.Exists(Path.Combine(sourceUserFolder, "user-data"));
 
