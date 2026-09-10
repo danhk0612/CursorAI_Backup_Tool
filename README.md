@@ -2,7 +2,7 @@
 
 Windows 환경에서 Cursor 에디터의 사용자 데이터를 백업·복원하는 도구입니다.
 
-v2 개선 방향과 작업 순서는 `V2_PLAN.md`를 참고하세요.
+v2/v3 개선 방향과 작업 순서는 `V2_PLAN.md`, 아카이브 포맷은 `V3_ARCHIVE_FORMAT.md`를 참고하세요.
 
 ## GUI
 
@@ -42,9 +42,9 @@ Cursor 버전은 발견한 `Cursor.exe`의 파일 버전 정보에서 읽습니�
 
 ### 진행 상태
 
-백업/복원 중에는 현재 처리 단계와 작업 경과 시간이 계속 표시되고, 진행 바는 복사 작업이 계속 진행 중임을 보여주는 Marquee 방식으로 동작합니다.
+백업/복원 중에는 현재 처리 단계와 작업 경과 시간이 계속 표시되고, 진행 바는 작업이 계속 진행 중임을 보여주는 Marquee 방식으로 동작합니다.
 
-파일 수와 크기가 큰 Cursor 데이터는 한 복사 단계가 오래 걸릴 수 있으므로 실제 바이트 퍼센트를 임의로 표시하지 않습니다.
+파일 수와 크기가 큰 Cursor 데이터는 한 단계가 오래 걸릴 수 있으므로 실제 바이트 퍼센트를 임의로 표시하지 않습니다. 백업/복원 자체가 끝나는 즉시 진행 표시를 종료하고, 백업 목록 새로고침은 그 다음 단계에서 별도로 수행합니다.
 
 ## GUI 빌드
 
@@ -103,13 +103,13 @@ backups\yyyy-MM-dd_HHmmss\
   cursor-user.zip    # .cursor가 있을 때만
 ```
 
-- `CompressionLevel.NoCompression`
+- .NET 내장 ZIP `CompressionLevel.NoCompression`
 - 별도 7-Zip 의존성 없음
 - `.cursor\extensions` 실파일 포함
 - `backup-info.json`에 `totalBytes`를 저장해 새 백업 목록 크기를 빠르게 표시
 - 기존 v2/Legacy 폴더형 백업도 계속 복원 가능
 
-상세 포맷은 `V3_ARCHIVE_FORMAT.md`를 참고하세요.
+아카이브 목적은 용량 압축보다 **수많은 개별 파일을 몇 개의 컨테이너 파일로 묶어 삭제·이동·전송을 단순화하는 것**입니다.
 
 ## 백업 처리
 
@@ -144,9 +144,16 @@ backups\yyyy-MM-dd_HHmmss\
 
 ## 검증 상태
 
-2026-09-10 실제 Windows 환경에서 **User Setup PC에서 생성한 백업을 System Setup VM으로 복원**했고, 복원 후 Cursor 실행과 기본 동작에서 큰 문제 없이 완료된 것을 확인했습니다.
+2026-09-10 실제 Windows 환경에서 다음을 확인했습니다.
 
-아직 별도 확인할 항목은 Normal 복원 시 두 WorkspaceStorage와 `.cursor\user-data` 보존, Full AI 복원, 기존 v2/Legacy 백업 복원, 오프라인/VSIX 확장 복구입니다.
+- Cursor 실행 중 백업 시작 시 종료 확인 및 자동 종료
+- 백업 중 Cursor 자동 재실행 문제 수정
+- 백업 완료 후 진행 표시/경과 시간이 계속 유지되는 문제 수정
+- Normal 백업에서 두 WorkspaceStorage 제외 후 용량 감소
+- **User Setup 원본 PC → System Setup VM** 교차 설치 유형으로 백업/복원 완료
+- 교차 설치 복원 후 Cursor 실행 및 기본 동작에서 큰 문제 없음
+
+아직 별도 확인할 항목은 Normal 복원 시 두 WorkspaceStorage와 `.cursor\user-data` 보존, Full AI 복원, 기존 v2/Legacy 백업 복원, 오프라인/VSIX 확장 복구, `NoCompression` 아카이브 성능 재측정입니다.
 
 ## Legacy 배치 도구
 
