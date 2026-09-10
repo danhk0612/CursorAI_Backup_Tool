@@ -17,6 +17,35 @@ if not exist "%SQLITE%" ( echo "[ERR] Can not find sqlite3.exe" & pause & exit )
 set "CURSOR_CMD=cursor"
 if exist "%LOCALAPPDATA%\Programs\Cursor\Cursor.exe" ( set "CURSOR_CMD=%LOCALAPPDATA%\Programs\Cursor\Cursor.exe" ) else if exist "C:\Program Files\Cursor\Cursor.exe" ( set "CURSOR_CMD=C:\Program Files\Cursor\Cursor.exe" ) else if exist "C:\Program Files (x86)\Cursor\Cursor.exe" ( set "CURSOR_CMD=C:\Program Files (x86)\Cursor\Cursor.exe" )
 
+:: Backup mode. Normal is the default to avoid large workspaceStorage backups.
+echo "Backup mode:"
+echo "  1. Normal backup (default, excludes workspaceStorage)"
+echo "  2. Full AI backup (includes workspaceStorage; may use much more space)"
+set /p "BACKUP_MODE=Select mode [1]: "
+if "!BACKUP_MODE!"=="" set "BACKUP_MODE=1"
+if not "!BACKUP_MODE!"=="1" if not "!BACKUP_MODE!"=="2" (
+    echo "[ERR] Invalid backup mode."
+    pause
+    exit /b 1
+)
+
+set "WORKSPACE_INCLUDED=0"
+set "BACKUP_TYPE=normal"
+if "!BACKUP_MODE!"=="2" (
+    set "WORKSPACE_INCLUDED=1"
+    set "BACKUP_TYPE=full-ai"
+)
+
+echo.
+if "!WORKSPACE_INCLUDED!"=="1" (
+    echo "Selected: Full AI backup - workspaceStorage will be included."
+) else (
+    echo "Selected: Normal backup - workspaceStorage will be excluded."
+)
+echo "Notice: Cursor backup data may contain project paths, AI transcripts, MCP settings,"
+echo "        API keys, tokens, or other sensitive information. Store backups securely."
+echo.
+
 :: Cursor process: prompt before closing
 tasklist | find /I "cursor.exe" >nul
 if %errorlevel%==0 (
@@ -78,7 +107,11 @@ echo.
 echo "[2/5] Copying settings and extensions..."
 
 if exist "%APPDATA%\Cursor" (
-    robocopy "%APPDATA%\Cursor" "%DEST%\Roaming\Cursor" /E /R:1 /W:1 /XD WorkspaceStorage User\WebStorage User\CachedData User\History User\logs logs Cache >nul
+    if "!WORKSPACE_INCLUDED!"=="1" (
+        robocopy "%APPDATA%\Cursor" "%DEST%\Roaming\Cursor" /E /R:1 /W:1 /XD User\WebStorage User\CachedData User\History User\logs logs Cache >nul
+    ) else (
+        robocopy "%APPDATA%\Cursor" "%DEST%\Roaming\Cursor" /E /R:1 /W:1 /XD "%APPDATA%\Cursor\User\workspaceStorage" User\WebStorage User\CachedData User\History User\logs logs Cache >nul
+    )
     set "RC_ROAMING=!errorlevel!"
     if !RC_ROAMING! geq 8 (
         set "BACKUP_FAILED=1"
@@ -141,6 +174,8 @@ if exist "%DBPATH%\state.vscdb.backup" (
 
 echo.
 echo "===== Backup Result ====="
+echo "Backup type  : !BACKUP_TYPE!"
+echo "workspaceStorage: !WORKSPACE_INCLUDED!"
 echo "Roaming copy : !RC_ROAMING!"
 echo "Local copy   : !RC_LOCAL!"
 echo "User .cursor : !RC_USER!"
