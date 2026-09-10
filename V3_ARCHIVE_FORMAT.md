@@ -94,3 +94,4 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - Full AI 백업/복원 시 두 WorkspaceStorage 교체 확인
 - 기존 v2/Legacy 폴더 백업 복원 호환성
 - 오프라인/VSIX 설치 확장의 실제 복구 확인
+- `NoCompression` 적용 후 백업 시간 재측정
