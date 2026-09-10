@@ -13,11 +13,12 @@ internal sealed class MainForm : Form
     private readonly Button _deleteButton = new() { Text = "삭제", Width = 100 };
     private readonly Button _refreshButton = new() { Text = "새로 고침", Width = 100 };
     private readonly Label _statusLabel = new() { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly ProgressBar _progressBar = new() { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, Visible = false };
+    private readonly ProgressBar _progressBar = new() { Dock = DockStyle.Fill, Visible = false, Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 25 };
     private readonly Label _progressLabel = new() { AutoSize = false, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Visible = false };
     private readonly System.Windows.Forms.Timer _elapsedTimer = new() { Interval = 1000 };
     private readonly Stopwatch _stopwatch = new();
     private string _currentProgressMessage = string.Empty;
+    private bool _operationInProgress;
 
     public MainForm()
     {
@@ -34,6 +35,7 @@ internal sealed class MainForm : Form
         _deleteButton.Click += async (_, _) => await DeleteAsync();
         _refreshButton.Click += async (_, _) => await RefreshBackupsAsync();
         _elapsedTimer.Tick += (_, _) => UpdateProgressText();
+        FormClosing += OnFormClosing;
         Shown += async (_, _) => await RefreshBackupsAsync();
     }
 
@@ -112,7 +114,7 @@ internal sealed class MainForm : Form
         if (_fullRadio.Checked)
         {
             var answer = MessageBox.Show(
-                "전체 AI 백업은 workspaceStorage를 포함하므로 백업 용량이 크게 증가할 수 있습니다.\r\n계속하시겠습니까?",
+                "전체 AI 백업은 두 WorkspaceStorage를 포함하므로 백업 용량이 크게 증가할 수 있습니다.\r\n계속하시겠습니까?",
                 "전체 AI 백업",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning);
@@ -234,7 +236,6 @@ internal sealed class MainForm : Form
         BeginProgress(initialStatus, showProgress);
         var progress = new Progress<OperationProgress>(p =>
         {
-            _progressBar.Value = Math.Clamp(p.Percent, 0, 100);
             _currentProgressMessage = p.Message;
             UpdateProgressText();
         });
@@ -250,7 +251,8 @@ internal sealed class MainForm : Form
     private void BeginProgress(string message, bool showProgress)
     {
         _currentProgressMessage = message;
-        _progressBar.Value = 0;
+        _progressBar.Style = ProgressBarStyle.Marquee;
+        _progressBar.MarqueeAnimationSpeed = 25;
         _progressBar.Visible = showProgress;
         _progressLabel.Visible = showProgress;
         _stopwatch.Restart();
@@ -270,13 +272,14 @@ internal sealed class MainForm : Form
     private void UpdateProgressText()
     {
         if (!_stopwatch.IsRunning && _stopwatch.Elapsed == TimeSpan.Zero) return;
-        _progressLabel.Text = $"{_currentProgressMessage}   ·   경과 {_stopwatch.Elapsed:hh\\:mm\\:ss}";
-        if (_progressBar.Visible)
-            SetStatus($"작업 진행 중 · {_progressBar.Value}% · 경과 {_stopwatch.Elapsed:hh\\:mm\\:ss}");
+        var elapsed = _stopwatch.Elapsed.ToString(@"hh\:mm\:ss");
+        _progressLabel.Text = $"{_currentProgressMessage}   ·   경과 {elapsed}";
+        if (_progressBar.Visible) SetStatus($"작업 진행 중 · {_currentProgressMessage} · 경과 {elapsed}");
     }
 
     private void SetBusy(bool busy)
     {
+        _operationInProgress = busy;
         _backupButton.Enabled = !busy;
         _restoreButton.Enabled = !busy;
         _deleteButton.Enabled = !busy;
@@ -284,6 +287,14 @@ internal sealed class MainForm : Form
         _normalRadio.Enabled = !busy;
         _fullRadio.Enabled = !busy;
         _grid.Enabled = !busy;
+        ControlBox = !busy;
+    }
+
+    private void OnFormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (!_operationInProgress) return;
+        e.Cancel = true;
+        MessageBox.Show("백업 또는 복원 작업이 진행 중입니다. 작업이 끝난 뒤 프로그램을 종료하십시오.", "작업 진행 중", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private void SetStatus(string text) => _statusLabel.Text = text;
