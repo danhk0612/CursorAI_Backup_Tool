@@ -40,6 +40,8 @@ Normal과 동일하되 두 WorkspaceStorage를 `roaming.zip`에 포함한다.
 - v3 archive: `roaming.zip`, `local.zip`, `cursor-user.zip`을 직접 해제한다.
 - v2/Legacy folder: 기존 `Roaming\Cursor`, `Local\Cursor`, `User\.cursor` 폴더 구조를 계속 지원한다.
 - Normal 복원에서는 백업에 포함되지 않은 현재 WorkspaceStorage 두 위치와 `.cursor\user-data`를 같은 볼륨의 디렉터리 이동으로 보존한다.
+- v3 복원은 `workspaceStorageIncluded` 플래그만 믿지 않고 `roaming.zip` 내부에 `WorkspaceStorage/`, `User/workspaceStorage/` 항목이 실제로 존재하는지 각각 확인한다.
+- 따라서 Full AI 백업이라도 원본 PC에 둘 중 하나가 애초에 없었다면, 대상 PC의 대응 WorkspaceStorage를 불필요하게 지우지 않고 보존한다.
 - 기본 복원은 현재 Cursor 데이터 폴더를 같은 볼륨의 `*.cursor-backup-old-<timestamp>` 위치로 먼저 이동해 롤백용으로 보존한다.
 - 복원이 실패하면 새로 생성된 복원 데이터를 정리하고 move-aside한 기존 폴더를 원위치로 되돌린다.
 - 복원이 성공한 뒤에만 move-aside 롤백 폴더를 삭제한다.
