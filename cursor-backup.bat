@@ -50,17 +50,24 @@ if not exist "%USERPROFILE%\.cursor" (
     echo "Warning: %USERPROFILE%\.cursor not found. User .cursor data will be skipped."
 )
 
-:: Backup folder name (date_time)
-for /f "tokens=1-2 delims= " %%a in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HHmm'"') do (
-    set "DATE_STR=%%a"
-    set "TIME_STR=%%b"
-)
-set "NAME=%DATE_STR%_%TIME_STR%"
-set "DEST=%BACKUP_ROOT%\%NAME%"
+:: Backup folder name (date_time with seconds)
+for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd_HHmmss'"') do set "NAME=%%a"
+set "FINAL_DEST=%BACKUP_ROOT%\%NAME%"
+set "DEST=%FINAL_DEST%.incomplete"
 
 echo.
-echo "[1/5] Creating temporary folder: %NAME%"
-if not exist "%DEST%" mkdir "%DEST%"
+echo "[1/5] Creating temporary folder: %NAME%.incomplete"
+if exist "%DEST%" (
+    echo "[ERR] Temporary backup folder already exists: %DEST%"
+    pause
+    exit /b 1
+)
+if exist "%FINAL_DEST%" (
+    echo "[ERR] Backup folder already exists: %FINAL_DEST%"
+    pause
+    exit /b 1
+)
+mkdir "%DEST%"
 if not exist "%DEST%" (
     echo "[ERR] Failed to create backup folder: %DEST%"
     pause
@@ -141,7 +148,17 @@ echo "User .cursor : !RC_USER!"
 if "!BACKUP_FAILED!"=="1" (
     echo "Status       : FAILED"
     echo "One or more required data copy operations failed."
-    echo "Backup folder: %NAME%"
+    echo "Incomplete backup kept at: %NAME%.incomplete"
+    echo.
+    pause
+    exit /b 1
+)
+
+move "%DEST%" "%FINAL_DEST%" >nul
+if errorlevel 1 (
+    echo "Status       : FAILED"
+    echo "[ERR] Backup data was copied, but the temporary folder could not be finalized."
+    echo "Incomplete backup kept at: %NAME%.incomplete"
     echo.
     pause
     exit /b 1
