@@ -24,7 +24,7 @@ internal sealed class BackupService
         }
     }
 
-    public async Task<OperationResult> CreateBackupAsync(bool includeWorkspaceStorage)
+    public async Task<OperationResult> CreateBackupAsync(bool includeWorkspaceStorage, IProgress<OperationProgress>? progress = null)
     {
         Directory.CreateDirectory(_backupRoot);
         var stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
@@ -32,12 +32,14 @@ internal sealed class BackupService
         var tempPath = finalPath + ".incomplete";
         if (Directory.Exists(tempPath) || Directory.Exists(finalPath)) return new(false, "같은 시각의 백업 폴더가 이미 존재합니다.");
 
+        progress?.Report(new(5, "백업 폴더 준비 중..."));
         Directory.CreateDirectory(tempPath);
         var warnings = new List<string>();
         try
         {
             if (Directory.Exists(_roamingCursor))
             {
+                progress?.Report(new(15, includeWorkspaceStorage ? "Roaming 데이터 복사 중 (workspaceStorage 포함)..." : "Roaming 데이터 복사 중..."));
                 var rc = await RunRobocopyAsync(_roamingCursor, Path.Combine(tempPath, "Roaming", "Cursor"), RoamingExcludes(includeWorkspaceStorage));
                 if (rc >= 8) return FailIncomplete(tempPath, $"Roaming 데이터 복사 실패 (Robocopy {rc}).");
             }
@@ -45,6 +47,7 @@ internal sealed class BackupService
 
             if (Directory.Exists(_localCursor))
             {
+                progress?.Report(new(50, "Local 데이터 복사 중..."));
                 var rc = await RunRobocopyAsync(_localCursor, Path.Combine(tempPath, "Local", "Cursor"), LocalExcludes());
                 if (rc >= 8) return FailIncomplete(tempPath, $"Local 데이터 복사 실패 (Robocopy {rc}).");
             }
@@ -52,23 +55,37 @@ internal sealed class BackupService
 
             if (Directory.Exists(_userCursor))
             {
+                progress?.Report(new(65, ".cursor 사용자 데이터 복사 중..."));
                 var rc = await RunRobocopyAsync(_userCursor, Path.Combine(tempPath, "User", ".cursor"), new[] { Path.Combine(_userCursor, "user-data") });
                 if (rc >= 8) return FailIncomplete(tempPath, $".cursor 데이터 복사 실패 (Robocopy {rc}).");
             }
             else warnings.Add("사용자 .cursor 경로가 없습니다.");
 
-            var cursor = FindCursorCommand();
-            var version = await RunCursorAsync(cursor, "--version");
-            if (version.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "cursor_version.txt"), version.Output, Encoding.UTF8);
-            else warnings.Add("Cursor 버전 정보를 가져오지 못했습니다.");
+            progress?.Report(new(82, "Cursor 버전 및 확장 정보 확인 중..."));
+            var cursorCli = FindCursorCliCommand();
+            (bool Success, string Output) version = (false, string.Empty);
+            (bool Success, string Output) extensions = (false, string.Empty);
+            (bool Success, string Output) versions = (false, string.Empty);
 
-            var extensions = await RunCursorAsync(cursor, "--list-extensions");
-            if (extensions.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "extensions.txt"), extensions.Output, Encoding.UTF8);
-            else warnings.Add("확장 목록을 가져오지 못했습니다.");
+            if (cursorCli is not null)
+            {
+                version = await RunCursorCliAsync(cursorCli, "--version");
+                if (version.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "cursor_version.txt"), version.Output, Encoding.UTF8);
+                else warnings.Add("Cursor 버전 정보를 가져오지 못했습니다.");
 
-            var versions = await RunCursorAsync(cursor, "--list-extensions", "--show-versions");
-            if (versions.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "extensions_with_versions.txt"), versions.Output, Encoding.UTF8);
+                extensions = await RunCursorCliAsync(cursorCli, "--list-extensions");
+                if (extensions.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "extensions.txt"), extensions.Output, Encoding.UTF8);
+                else warnings.Add("확장 목록을 가져오지 못했습니다.");
 
+                versions = await RunCursorCliAsync(cursorCli, "--list-extensions", "--show-versions");
+                if (versions.Success) await File.WriteAllTextAsync(Path.Combine(tempPath, "extensions_with_versions.txt"), versions.Output, Encoding.UTF8);
+            }
+            else
+            {
+                warnings.Add("Cursor CLI를 찾지 못해 버전/확장 목록 생성을 건너뛰었습니다.");
+            }
+
+            progress?.Report(new(92, "백업 메타데이터 기록 중..."));
             await WriteInfoAsync(tempPath, new BackupInfo
             {
                 CreatedAt = DateTimeOffset.Now,
@@ -78,13 +95,15 @@ internal sealed class BackupService
                 Status = warnings.Count == 0 ? "SUCCESS" : "WARNING"
             });
 
+            progress?.Report(new(98, "백업 완료 처리 중..."));
             Directory.Move(tempPath, finalPath);
+            progress?.Report(new(100, "백업 완료"));
             return new(true, warnings.Count == 0 ? $"백업 완료: {stamp}" : $"백업 완료(경고): {stamp}\r\n- {string.Join("\r\n- ", warnings)}");
         }
         catch (Exception ex) { return FailIncomplete(tempPath, ex.Message); }
     }
 
-    public async Task<OperationResult> RestoreAsync(BackupRecord record)
+    public async Task<OperationResult> RestoreAsync(BackupRecord record, IProgress<OperationProgress>? progress = null)
     {
         if (record.IsIncomplete) return new(false, "완료되지 않은 백업은 복원할 수 없습니다.");
         var source = record.FullPath;
@@ -99,6 +118,7 @@ internal sealed class BackupService
 
         try
         {
+            progress?.Report(new(10, "현재 상태 안전 백업 중..."));
             var safety = await BackupCurrentStateAsync(safetyTemp);
             if (!safety.Success) return new(false, $"현재 상태 안전 백업 실패. 복원을 시작하지 않았습니다.\r\n{safety.Message}");
             await WriteInfoAsync(safetyTemp, new BackupInfo { CreatedAt = DateTimeOffset.Now, Type = "pre-restore", WorkspaceStorageIncluded = true, Status = "SUCCESS" });
@@ -113,6 +133,7 @@ internal sealed class BackupService
             var hadLocal = false;
             var hadUser = false;
 
+            progress?.Report(new(35, "현재 Cursor 데이터 분리 중..."));
             try
             {
                 hadRoaming = MoveAsideIfExists(_roamingCursor, oldRoaming);
@@ -129,10 +150,20 @@ internal sealed class BackupService
 
             try
             {
+                progress?.Report(new(50, "Roaming 데이터 복원 중..."));
                 EnsureRoboSuccess(await RunRobocopyAsync(sourceRoaming, _roamingCursor, Array.Empty<string>()), "Roaming 복원");
-                if (restoreLocal) EnsureRoboSuccess(await RunRobocopyAsync(Path.Combine(source, "Local", "Cursor"), _localCursor, Array.Empty<string>()), "Local 복원");
-                if (restoreUser) EnsureRoboSuccess(await RunRobocopyAsync(Path.Combine(source, "User", ".cursor"), _userCursor, Array.Empty<string>()), ".cursor 복원");
+                if (restoreLocal)
+                {
+                    progress?.Report(new(68, "Local 데이터 복원 중..."));
+                    EnsureRoboSuccess(await RunRobocopyAsync(Path.Combine(source, "Local", "Cursor"), _localCursor, Array.Empty<string>()), "Local 복원");
+                }
+                if (restoreUser)
+                {
+                    progress?.Report(new(78, ".cursor 사용자 데이터 복원 중..."));
+                    EnsureRoboSuccess(await RunRobocopyAsync(Path.Combine(source, "User", ".cursor"), _userCursor, Array.Empty<string>()), ".cursor 복원");
+                }
 
+                progress?.Report(new(88, "백업 제외 데이터 보존 중..."));
                 if (!Directory.Exists(Path.Combine(sourceRoaming, "User", "workspaceStorage")) && hadRoaming)
                 {
                     var workspace = Path.Combine(oldRoaming, "User", "workspaceStorage");
@@ -146,6 +177,7 @@ internal sealed class BackupService
             }
             catch
             {
+                progress?.Report(new(90, "복원 실패 - 기존 데이터 롤백 중..."));
                 DeleteIfExists(_roamingCursor);
                 if (restoreLocal) DeleteIfExists(_localCursor);
                 if (restoreUser) DeleteIfExists(_userCursor);
@@ -155,9 +187,11 @@ internal sealed class BackupService
                 throw;
             }
 
+            progress?.Report(new(96, "임시 데이터 정리 중..."));
             DeleteIfExists(oldRoaming);
             DeleteIfExists(oldLocal);
             DeleteIfExists(oldUser);
+            progress?.Report(new(100, "복원 완료"));
             return new(true, $"복원 완료: {record.Name}\r\n안전 백업: {Path.GetFileName(safetyFinal)}");
         }
         catch (Exception ex) { return new(false, $"복원 실패: {ex.Message}\r\n가능한 경우 pre-restore 백업을 확인하십시오."); }
@@ -251,30 +285,55 @@ internal sealed class BackupService
         return process.ExitCode;
     }
 
-    private static async Task<(bool Success, string Output)> RunCursorAsync(string command, params string[] args)
+    private static async Task<(bool Success, string Output)> RunCursorCliAsync(string command, params string[] args)
     {
         try
         {
-            var psi = new ProcessStartInfo(command) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (var arg in args) psi.ArgumentList.Add(arg);
+            var psi = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add("/d");
+            psi.ArgumentList.Add("/s");
+            psi.ArgumentList.Add("/c");
+            var commandLine = new StringBuilder();
+            commandLine.Append("call \"").Append(command).Append("\"");
+            foreach (var arg in args) commandLine.Append(' ').Append(arg);
+            psi.ArgumentList.Add(commandLine.ToString());
+
             using var process = Process.Start(psi);
             if (process is null) return (false, string.Empty);
             var output = await process.StandardOutput.ReadToEndAsync();
+            await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
             return (process.ExitCode == 0, output.Trim());
         }
         catch { return (false, string.Empty); }
     }
 
-    private static string FindCursorCommand()
+    private static string? FindCursorCliCommand()
     {
-        var candidates = new[]
+        var installRoots = new[]
         {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Cursor", "Cursor.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Cursor", "Cursor.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Cursor", "Cursor.exe")
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Cursor"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Cursor"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Cursor")
         };
-        return candidates.FirstOrDefault(File.Exists) ?? "cursor";
+
+        foreach (var root in installRoots)
+        {
+            var candidate = Path.Combine(root, "resources", "app", "bin", "cursor.cmd");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var part in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                var candidate = Path.Combine(part.Trim().Trim('"'), "cursor.cmd");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+        return null;
     }
 
     private static Task WriteInfoAsync(string folder, BackupInfo info) => File.WriteAllTextAsync(Path.Combine(folder, "backup-info.json"), JsonSerializer.Serialize(info, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
