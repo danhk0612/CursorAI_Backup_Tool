@@ -151,6 +151,13 @@ if errorlevel 1 (
     echo "Warning: Could not create extensions.txt."
 )
 
+:: Keep the ID-only list for compatibility and record versions separately when supported.
+call "%CURSOR_CMD%" --list-extensions --show-versions > "%DEST%\extensions_with_versions.txt" 2>nul
+if errorlevel 1 (
+    if exist "%DEST%\extensions_with_versions.txt" del /f /q "%DEST%\extensions_with_versions.txt" >nul 2>&1
+    echo "Note: Extension version list is not available; extensions.txt will be used."
+)
+
 echo.
 echo "[4/5] Optimizing database (VACUUM)..."
 set "DBPATH=%DEST%\Roaming\Cursor\User\globalStorage"
