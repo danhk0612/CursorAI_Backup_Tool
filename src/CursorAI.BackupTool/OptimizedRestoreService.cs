@@ -165,13 +165,16 @@ internal sealed class OptimizedRestoreService
             }
 
             progress?.Report(new(95, "롤백용 임시 데이터 정리 중..."));
-            DeleteIfExists(oldRoaming);
-            DeleteIfExists(oldLocal);
-            DeleteIfExists(oldUser);
+            var cleanupWarnings = new List<string>();
+            TryDeleteOld(oldRoaming, cleanupWarnings);
+            TryDeleteOld(oldLocal, cleanupWarnings);
+            TryDeleteOld(oldUser, cleanupWarnings);
             progress?.Report(new(100, "복원 완료"));
 
-            return new(true,
-                $"복원 완료: {record.Name}\r\n형식: {(archiveV3 ? "v3 archive" : "legacy folder")}\r\n복원 전 영구 안전 백업: 생성 안 함 (move-aside 롤백 사용)");
+            var result = $"복원 완료: {record.Name}\r\n형식: {(archiveV3 ? "v3 archive" : "legacy folder")}\r\n복원 전 영구 안전 백업: 생성 안 함 (move-aside 롤백 사용)";
+            if (cleanupWarnings.Count > 0)
+                result += "\r\n안내: 복원은 완료됐지만 일부 롤백용 임시 폴더를 자동 삭제하지 못했습니다.\r\n" + string.Join("\r\n", cleanupWarnings);
+            return new(true, result);
         }
         catch (Exception ex)
         {
@@ -236,5 +239,18 @@ internal sealed class OptimizedRestoreService
     private static void DeleteIfExists(string path)
     {
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+    }
+
+    private static void TryDeleteOld(string path, ICollection<string> warnings)
+    {
+        if (!Directory.Exists(path)) return;
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            warnings.Add($"{path}: {ex.Message}");
+        }
     }
 }
