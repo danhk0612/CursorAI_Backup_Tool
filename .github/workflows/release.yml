@@ -14,62 +14,96 @@ permissions:
   contents: write
 
 jobs:
-  tag-release-version:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Create version tag when missing
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/CursorAI.BackupTool/CursorAI.BackupTool.csproj | head -n 1)"
-          if [ -z "$version" ]; then
-            echo "Could not read project version."
-            exit 1
-          fi
-
-          tag="v$version"
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$tag" >/dev/null 2>&1; then
-            echo "$tag already exists; no release tag needed."
-            exit 0
-          fi
-
-          echo "Creating $tag at ${{ github.sha }}"
-          gh api --method POST "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/tags/$tag" \
-            -f sha="${{ github.sha }}"
-
   build-package:
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate tag version
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Prepare release metadata
+        id: meta
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           [xml]$project = Get-Content '.\src\CursorAI.BackupTool\CursorAI.BackupTool.csproj'
           $version = [string]$project.Project.PropertyGroup.Version
-          $expectedTag = "v$version"
-          if ('${{ github.ref_name }}' -ne $expectedTag) {
-            throw "Tag ${{ github.ref_name }} does not match project version $version."
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'Could not read project version.'
           }
 
+          $eventName = '${{ github.event_name }}'
+          $gitRef = '${{ github.ref }}'
+          $refName = '${{ github.ref_name }}'
+          $repo = '${{ github.repository }}'
+          $sha = '${{ github.sha }}'
+
+          $shouldBuild = $eventName -eq 'pull_request'
+          $shouldRelease = $false
+          $tag = ''
+
+          if ($eventName -eq 'push' -and $gitRef.StartsWith('refs/tags/v')) {
+            $tag = $refName
+            $expectedTag = "v$version"
+            if ($tag -ne $expectedTag) {
+              throw "Tag $tag does not match project version $version."
+            }
+
+            gh release view $tag --repo $repo *> $null
+            if ($LASTEXITCODE -ne 0) {
+              $shouldBuild = $true
+              $shouldRelease = $true
+            }
+          }
+          elseif ($eventName -eq 'push' -and $gitRef -eq 'refs/heads/main') {
+            $tag = "v$version"
+
+            gh release view $tag --repo $repo *> $null
+            if ($LASTEXITCODE -ne 0) {
+              gh api "repos/$repo/git/ref/tags/$tag" *> $null
+              $tagExists = $LASTEXITCODE -eq 0
+
+              $writeSucceeded = $false
+              for ($attempt = 1; $attempt -le 2; $attempt++) {
+                if ($tagExists) {
+                  gh api --method PATCH "repos/$repo/git/refs/tags/$tag" -f sha=$sha -F force=true
+                }
+                else {
+                  gh api --method POST "repos/$repo/git/refs" -f ref="refs/tags/$tag" -f sha=$sha
+                }
+
+                if ($LASTEXITCODE -eq 0) {
+                  $writeSucceeded = $true
+                  break
+                }
+
+                if ($attempt -lt 2) {
+                  Start-Sleep -Seconds 2
+                }
+              }
+
+              if (-not $writeSucceeded) {
+                throw "Could not create or update release tag $tag."
+              }
+
+              $shouldBuild = $true
+              $shouldRelease = $true
+            }
+          }
+
+          "should_build=$($shouldBuild.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "should_release=$($shouldRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
       - name: Setup .NET 10
+        if: steps.meta.outputs.should_build == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Publish framework-dependent single-file app
+        if: steps.meta.outputs.should_build == 'true'
         shell: pwsh
         run: |
           dotnet publish .\src\CursorAI.BackupTool\CursorAI.BackupTool.csproj `
@@ -81,6 +115,7 @@ jobs:
             -p:DebugSymbols=false
 
       - name: Build native runtime launcher
+        if: steps.meta.outputs.should_build == 'true'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -112,6 +147,7 @@ jobs:
           }
 
       - name: Prepare release package
+        if: steps.meta.outputs.should_build == 'true'
         shell: pwsh
         run: |
           $publish = '.\src\CursorAI.BackupTool\bin\Release\net10.0-windows\win-x64\publish'
@@ -133,6 +169,7 @@ jobs:
           Compress-Archive -Path "$stage\*" -DestinationPath '.\CursorAI.BackupTool-win-x64.zip' -Force
 
       - name: Verify package contents
+        if: steps.meta.outputs.should_build == 'true'
         shell: pwsh
         run: |
           $required = @(
@@ -153,14 +190,33 @@ jobs:
           }
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.meta.outputs.should_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = '${{ github.ref_name }}'
-          gh release create $tag `
-            '.\CursorAI.BackupTool-win-x64.zip' `
-            --title $tag `
-            --generate-notes `
-            --verify-tag
+          $tag = '${{ steps.meta.outputs.tag }}'
+          $repo = '${{ github.repository }}'
+
+          $released = $false
+          for ($attempt = 1; $attempt -le 2; $attempt++) {
+            gh release create $tag `
+              '.\CursorAI.BackupTool-win-x64.zip' `
+              --repo $repo `
+              --title $tag `
+              --generate-notes `
+              --verify-tag
+
+            if ($LASTEXITCODE -eq 0) {
+              $released = $true
+              break
+            }
+
+            if ($attempt -lt 2) {
+              Start-Sleep -Seconds 2
+            }
+          }
+
+          if (-not $released) {
+            throw "Could not create GitHub Release $tag."
+          }
