@@ -13,26 +13,47 @@ Windows에서 Cursor 에디터의 설정, 확장 프로그램, 프로젝트 관�
 - 복원 실패 시 기존 데이터 롤백 시도
 - 기존 v2/Legacy 폴더형 백업도 복원 가능
 
-## 다운로드
+## 다운로드 및 실행
 
 최신 버전은 GitHub의 **Releases** 페이지에서 받을 수 있습니다.
 
-Windows 64비트용 배포 파일:
+Windows 64비트용 파일:
 
-- `CursorAI.BackupTool.exe` — 단일 실행 파일
-- `CursorAI.BackupTool-win-x64.zip` — 압축 패키지
+- `CursorAI.BackupTool-win-x64.zip`
 
-별도의 .NET 설치는 필요하지 않습니다.
+압축을 푼 뒤 다음 파일을 실행합니다.
+
+- `CursorAI.BackupTool.exe` — 실행용 런처
+- `CursorAI.BackupTool.App.exe` — 실제 프로그램 파일
+
+두 EXE는 같은 폴더에 있어야 합니다.
+
+### 필요한 .NET 런타임
+
+이 프로그램은 **Microsoft .NET 10 Desktop Runtime (x64)** 을 사용합니다.
+
+PC에 필요한 런타임이 없으면 `CursorAI.BackupTool.exe`가 실행 전에 이를 감지하고 안내창을 표시합니다. 안내창에서 Microsoft 공식 .NET 10 다운로드 페이지를 열 수 있습니다.
+
+런타임 자체는 프로그램 ZIP에 포함하지 않습니다.
 
 ## 사용 방법
 
-1. `CursorAI.BackupTool.exe`를 실행합니다.
-2. 백업할 경우 `일반 백업` 또는 `전체 AI 백업`을 선택합니다.
-3. `백업` 버튼을 누릅니다.
-4. 복원할 경우 목록에서 원하는 백업을 선택한 뒤 `복원` 버튼을 누릅니다.
-5. 필요 없는 백업은 선택 후 `삭제`할 수 있습니다.
+1. ZIP 파일을 원하는 폴더에 압축 해제합니다.
+2. `CursorAI.BackupTool.exe`를 실행합니다.
+3. 백업할 경우 `일반 백업` 또는 `전체 AI 백업`을 선택합니다.
+4. `백업` 버튼을 누릅니다.
+5. 복원할 경우 목록에서 원하는 백업을 선택한 뒤 `복원` 버튼을 누릅니다.
+6. 필요 없는 백업은 선택 후 `삭제`할 수 있습니다.
 
 백업과 복원 중에는 현재 작업 단계와 경과 시간이 표시됩니다.
+
+## 업데이트
+
+새 버전이 나오면 Releases에서 최신 ZIP을 내려받아 기존 프로그램 폴더에 프로그램 파일을 덮어쓰면 됩니다.
+
+Release ZIP에는 `backups` 폴더를 포함하지 않으므로 같은 폴더에서 업데이트해도 기존 백업은 그대로 유지됩니다.
+
+현재 프로그램 내부에서 자동 업데이트를 수행하지는 않습니다.
 
 ## 백업 모드
 
@@ -86,6 +107,7 @@ GUI의 **`복원 전 영구 안전 백업 생성 (느림)`** 옵션을 켜면 �
 
 ```text
 CursorAI.BackupTool.exe
+CursorAI.BackupTool.App.exe
 backups\
   2026-09-10_153000\
   2026-09-10_181500\
@@ -131,6 +153,7 @@ Cursor 사용자 데이터에는 프로젝트 경로, AI 작업 기록, MCP 설�
 
 - Windows 10 이상
 - 64비트 Windows
+- Microsoft .NET 10 Desktop Runtime (x64)
 - Cursor 에디터
 
 ## License
