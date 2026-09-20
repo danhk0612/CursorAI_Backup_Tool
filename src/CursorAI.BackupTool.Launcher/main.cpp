@@ -9,7 +9,7 @@
 namespace
 {
     constexpr wchar_t AppFileName[] = L"CursorAI.BackupTool.App.exe";
-    constexpr wchar_t RuntimeDownloadUrl[] = L"https://dotnet.microsoft.com/download/dotnet/10.0/runtime";
+    constexpr wchar_t RuntimeDownloadUrl[] = L"https://dotnet.microsoft.com/download/dotnet/10.0";
 
     std::wstring GetLauncherDirectory()
     {
@@ -28,8 +28,9 @@ namespace
     bool HasDesktopRuntime10()
     {
         wchar_t programFiles[32768]{};
-        DWORD length = GetEnvironmentVariableW(L"ProgramFiles", programFiles, static_cast<DWORD>(std::size(programFiles)));
-        if (length == 0 || length >= std::size(programFiles))
+        const DWORD capacity = static_cast<DWORD>(_countof(programFiles));
+        const DWORD length = GetEnvironmentVariableW(L"ProgramFiles", programFiles, capacity);
+        if (length == 0 || length >= capacity)
         {
             return false;
         }
