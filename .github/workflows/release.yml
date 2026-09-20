@@ -1,7 +1,12 @@
 name: Release
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -9,41 +14,146 @@ permissions:
   contents: write
 
 jobs:
-  build-release:
+  tag-release-version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create version tag when missing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/CursorAI.BackupTool/CursorAI.BackupTool.csproj | head -n 1)"
+          if [ -z "$version" ]; then
+            echo "Could not read project version."
+            exit 1
+          fi
+
+          tag="v$version"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists; no release tag needed."
+            exit 0
+          fi
+
+          echo "Creating $tag at ${{ github.sha }}"
+          gh api --method POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/$tag" \
+            -f sha="${{ github.sha }}"
+
+  build-package:
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8
+      - name: Validate tag version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content '.\src\CursorAI.BackupTool\CursorAI.BackupTool.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
+          $expectedTag = "v$version"
+          if ('${{ github.ref_name }}' -ne $expectedTag) {
+            throw "Tag ${{ github.ref_name }} does not match project version $version."
+          }
+
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      - name: Publish win-x64 single-file
+      - name: Publish framework-dependent single-file app
         shell: pwsh
         run: |
           dotnet publish .\src\CursorAI.BackupTool\CursorAI.BackupTool.csproj `
             -c Release `
             -r win-x64 `
-            --self-contained true `
+            --self-contained false `
             -p:PublishSingleFile=true `
             -p:DebugType=None `
             -p:DebugSymbols=false
 
+      - name: Build native runtime launcher
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) {
+            throw 'Visual Studio C++ build tools were not found.'
+          }
+
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+          $source = (Resolve-Path '.\src\CursorAI.BackupTool.Launcher\main.cpp').Path
+          $outDir = Join-Path (Resolve-Path '.').Path 'launcher-build'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+          $output = Join-Path $outDir 'CursorAI.BackupTool.exe'
+
+          @"
+          @echo off
+          call "$vcvars"
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++17 /O2 /DUNICODE /D_UNICODE "$source" /Fe:"$output" /link /SUBSYSTEM:WINDOWS user32.lib shell32.lib
+          "@ | Set-Content '.\build-launcher.cmd' -Encoding ASCII
+
+          & cmd.exe /d /c '.\build-launcher.cmd'
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          if (-not (Test-Path $output)) {
+            throw 'Launcher build did not produce CursorAI.BackupTool.exe.'
+          }
+
       - name: Prepare release package
         shell: pwsh
         run: |
-          $publish = '.\src\CursorAI.BackupTool\bin\Release\net8.0-windows\win-x64\publish'
+          $publish = '.\src\CursorAI.BackupTool\bin\Release\net10.0-windows\win-x64\publish'
           $stage = '.\release-package'
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "$publish\CursorAI.BackupTool.exe" "$stage\CursorAI.BackupTool.exe"
+
+          $app = Join-Path $publish 'CursorAI.BackupTool.App.exe'
+          if (-not (Test-Path $app)) {
+            throw 'Published application executable was not found.'
+          }
+
+          Copy-Item '.\launcher-build\CursorAI.BackupTool.exe' "$stage\CursorAI.BackupTool.exe"
+          Copy-Item $app "$stage\CursorAI.BackupTool.App.exe"
           Copy-Item '.\README.md' "$stage\README.md"
-          if (Test-Path '.\LICENSE') { Copy-Item '.\LICENSE' "$stage\LICENSE" }
+          if (Test-Path '.\LICENSE') {
+            Copy-Item '.\LICENSE' "$stage\LICENSE"
+          }
+
           Compress-Archive -Path "$stage\*" -DestinationPath '.\CursorAI.BackupTool-win-x64.zip' -Force
 
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          $required = @(
+            '.\release-package\CursorAI.BackupTool.exe',
+            '.\release-package\CursorAI.BackupTool.App.exe',
+            '.\release-package\README.md'
+          )
+
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Missing release file: $path"
+            }
+          }
+
+          $size = (Get-Item '.\CursorAI.BackupTool-win-x64.zip').Length
+          if ($size -le 0) {
+            throw 'Release ZIP is empty.'
+          }
+
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -51,7 +161,6 @@ jobs:
           $tag = '${{ github.ref_name }}'
           gh release create $tag `
             '.\CursorAI.BackupTool-win-x64.zip' `
-            '.\src\CursorAI.BackupTool\bin\Release\net8.0-windows\win-x64\publish\CursorAI.BackupTool.exe' `
             --title $tag `
             --generate-notes `
             --verify-tag
